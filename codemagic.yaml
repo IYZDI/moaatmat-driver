@@ -1,0 +1,46 @@
+# إعداد Codemagic لتطبيق «Moaatmat Driver» — بناء APK لأندرويد في السحابة (بلا Android SDK محلي).
+#
+# كيفية التشغيل:
+#   1) في Codemagic: Add application → اربط المستودع الذي يحوي مجلد driver_app.
+#      إن كان driver_app مجلدًا فرعيًا داخل مستودع أكبر، اضبط "Project path" على driver_app
+#      (أو انقل driver_app إلى مستودع مستقل).
+#   2) اختر workflow: android-apk، ثم Start new build.
+#   3) بعد النجاح يصلك ملف APK على بريدك (وأيضًا في صفحة البناء → Artifacts).
+#   4) على جوال أندرويد: فعّل «تثبيت من مصادر غير معروفة» ثم افتح ملف APK لتثبيته.
+#
+# ملاحظة توقيع: قالب Flutter الافتراضي يوقّع بناء release بمفتاح debug، فالـ APK
+# قابل للتثبيت مباشرة للاختبار الداخلي. للنشر على Google Play أضِف keystore لاحقًا.
+
+workflows:
+  android-apk:
+    name: Moaatmat Driver · Android APK
+    instance_type: linux_x2
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+
+    scripts:
+      - name: نسخة Flutter
+        script: flutter --version
+
+      - name: تثبيت الحزم
+        script: flutter pub get
+
+      - name: تحليل الكود
+        script: flutter analyze
+
+      - name: بناء APK (release)
+        script: flutter build apk --release
+
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/**/mapping.txt
+
+    publishing:
+      email:
+        recipients:
+          - yzoo0oodg4@gmail.com
+        notify:
+          success: true
+          failure: true

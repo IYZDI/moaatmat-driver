@@ -1,0 +1,156 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../theme.dart';
+import '../widgets.dart';
+import '../state.dart';
+import '../models.dart';
+
+class CustomersScreen extends ConsumerWidget {
+  const CustomersScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final orders = ref.watch(driverProvider).orders;
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          TealHeader(
+            child: Column(
+              children: [
+                const StatusBar(dark: true),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 12, 22, 0),
+                  child: Row(
+                    children: [
+                      InkWell(
+                        onTap: () => context.go('/home'),
+                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text('عملاء التوصيل', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                const StepperBar(current: 2),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
+              children: [
+                if (orders.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text('أنهيت جميع التوصيلات 👏', style: TextStyle(color: AppColors.muted))),
+                  ),
+                for (var i = 0; i < orders.length; i++) ...[
+                  i == 0 ? _nextCard(context, ref, orders[i]) : _waitingCard(orders[i]),
+                  const SizedBox(height: 14),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _addressRow(String address) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 2),
+          child: Icon(Icons.location_on_outlined, size: 16, color: AppColors.teal),
+        ),
+        const SizedBox(width: 7),
+        Expanded(child: Text(address, style: const TextStyle(fontSize: 13.5, color: AppColors.muted2, height: 1.5))),
+      ],
+    );
+  }
+
+  Widget _nextCard(BuildContext context, WidgetRef ref, Order o) {
+    return AppCard(
+      radius: 20,
+      padding: const EdgeInsets.all(18),
+      shadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 20, offset: Offset(0, 8))],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(o.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              const StatusBadge(label: 'التالي', fg: AppColors.teal, bg: AppColors.tealTint),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _addressRow(o.address),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('#${o.id}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+              Text('التوصيل المفضّل ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _snack(context, 'جارٍ الاتصال بـ ${o.name}')),
+              const SizedBox(width: 9),
+              SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.go('/map/${o.id}')),
+              const SizedBox(width: 9),
+              SquareIconButton(icon: Icons.chat_bubble_outline, onTap: () => context.go('/chat/${o.id}')),
+              const SizedBox(width: 9),
+              Expanded(
+                child: PrimaryButton(
+                  label: 'تأكيد التوجّه',
+                  fontSize: 14.5,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  radius: 12,
+                  onTap: () {
+                    ref.read(driverProvider.notifier).confirmEnroute(o.id);
+                    context.go('/map/${o.id}');
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _waitingCard(Order o) {
+    return AppCard(
+      radius: 20,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(o.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              const StatusBadge(label: 'بالانتظار', fg: AppColors.muted, bg: AppColors.border2),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _addressRow(o.address),
+          const SizedBox(height: 6),
+          Text('#${o.id} · التوصيل المفضّل ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+        ],
+      ),
+    );
+  }
+
+  void _snack(BuildContext context, String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+  }
+}

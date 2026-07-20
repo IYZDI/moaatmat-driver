@@ -1,0 +1,272 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'theme.dart';
+
+/// شريط حالة الجوال (9:41 + شبكة/واي فاي/بطارية).
+class StatusBar extends StatelessWidget {
+  final bool dark;
+  const StatusBar({super.key, this.dark = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = dark ? Colors.white : AppColors.ink;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(26, 14, 26, 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('9:41', style: TextStyle(color: c, fontSize: 13, fontWeight: FontWeight.w600)),
+          Row(children: [
+            Icon(Icons.signal_cellular_alt, size: 15, color: c),
+            const SizedBox(width: 6),
+            Icon(Icons.wifi, size: 15, color: c),
+            const SizedBox(width: 6),
+            Icon(Icons.battery_full, size: 17, color: c),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+/// مؤشّر الخطوات الثلاث: استلام ← توجّه ← تسليم. [current] = 1|2|3
+class StepperBar extends StatelessWidget {
+  final int current;
+  const StepperBar({super.key, required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['الاستلام', 'التوجّه', 'التسليم'];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
+      child: Row(
+        children: [
+          for (var i = 0; i < 3; i++) _step(i + 1, labels[i]),
+        ],
+      ),
+    );
+  }
+
+  Widget _step(int n, String label) {
+    final done = n < current;
+    final active = n == current;
+    final opacity = active ? 1.0 : (done ? 0.6 : 0.55);
+    return Expanded(
+      child: Opacity(
+        opacity: opacity,
+        child: Column(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: active ? Colors.white : Colors.white.withValues(alpha: done ? 0.25 : 0.22),
+              ),
+              child: done
+                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                  : Text('$n', style: TextStyle(color: active ? AppColors.teal : Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+            ),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem {
+  final String route;
+  final String label;
+  final IconData icon;
+  const _NavItem(this.route, this.label, this.icon);
+}
+
+const _navItems = [
+  _NavItem('/home', 'الرئيسية', Icons.home_outlined),
+  _NavItem('/pickup', 'الاستلام', Icons.inventory_2_outlined),
+  _NavItem('/customers', 'العملاء', Icons.people_outline),
+  _NavItem('/history', 'السجل', Icons.access_time),
+  _NavItem('/profile', 'حسابي', Icons.person_outline),
+];
+
+/// شريط التنقّل السفلي (يظهر في الرئيسية/السجل/حسابي).
+class BottomNav extends StatelessWidget {
+  final String current;
+  const BottomNav({super.key, required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 26),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          for (final it in _navItems)
+            _item(context, it, active: it.route == current),
+        ],
+      ),
+    );
+  }
+
+  Widget _item(BuildContext context, _NavItem it, {required bool active}) {
+    final color = active ? AppColors.teal : AppColors.muted3;
+    return InkWell(
+      onTap: active ? null : () => context.go(it.route),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(it.icon, size: 23, color: color),
+            const SizedBox(height: 4),
+            Text(it.label, style: TextStyle(fontSize: 11, color: color, fontWeight: active ? FontWeight.w600 : FontWeight.w400)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// شارة حالة صغيرة.
+class StatusBadge extends StatelessWidget {
+  final String label;
+  final Color fg;
+  final Color bg;
+  const StatusBadge({super.key, required this.label, required this.fg, required this.bg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+      child: Text(label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
+    );
+  }
+}
+
+/// بطاقة بيضاء بحدّ رفيع.
+class AppCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  final double radius;
+  final Color color;
+  final Color? borderColor;
+  final List<BoxShadow>? shadow;
+  const AppCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = 18,
+    this.color = Colors.white,
+    this.borderColor,
+    this.shadow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: borderColor ?? AppColors.border),
+        boxShadow: shadow,
+      ),
+      child: child,
+    );
+  }
+}
+
+/// الرأس التركوازي بزوايا سفلية دائرية.
+class TealHeader extends StatelessWidget {
+  final Widget child;
+  final double bottomRadius;
+  const TealHeader({super.key, required this.child, this.bottomRadius = 30});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.teal,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(bottomRadius)),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// زر أساسي تركوازي ممتلئ.
+class PrimaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final double fontSize;
+  final EdgeInsets padding;
+  final double radius;
+  const PrimaryButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.fontSize = 16,
+    this.padding = const EdgeInsets.all(15),
+    this.radius = 14,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return Material(
+      color: disabled ? const Color(0xFFC9C7C2) : AppColors.teal,
+      borderRadius: BorderRadius.circular(radius),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(radius),
+        child: Padding(
+          padding: padding,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (icon != null) ...[Icon(icon, size: 18, color: Colors.white), const SizedBox(width: 8)],
+              Text(label, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: fontSize)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// أيقونة مربّعة صغيرة (اتصال/موقع/محادثة).
+class SquareIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool teal;
+  final double size;
+  const SquareIconButton({super.key, required this.icon, required this.onTap, this.teal = false, this.size = 44});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: teal ? AppColors.tealTint : AppColors.border2,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Icon(icon, size: 19, color: teal ? AppColors.teal : AppColors.muted2),
+        ),
+      ),
+    );
+  }
+}
