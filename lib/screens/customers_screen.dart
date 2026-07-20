@@ -112,9 +112,9 @@ class CustomersScreen extends ConsumerWidget {
                   fontSize: 14.5,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   radius: 12,
-                  onTap: () {
-                    ref.read(driverProvider.notifier).confirmEnroute(o.id);
-                    context.go('/map/${o.id}');
+                  onTap: () async {
+                    await ref.read(driverProvider.notifier).confirmEnroute(o.id);
+                    if (context.mounted) context.go('/map/${o.id}');
                   },
                 ),
               ),

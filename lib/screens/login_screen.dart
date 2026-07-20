@@ -12,19 +12,32 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _phone = TextEditingController();
-  final _code = TextEditingController();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _busy = false;
+  bool _obscure = true;
 
   @override
   void dispose() {
-    _phone.dispose();
-    _code.dispose();
+    _email.dispose();
+    _password.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    ref.read(driverProvider.notifier).login(_phone.text);
-    context.go('/otp');
+  Future<void> _submit() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(driverProvider.notifier).signIn(_email.text, _password.text);
+      if (mounted) context.go('/home');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('تعذّر تسجيل الدخول — تحقّق من الإيميل وكلمة المرور'), behavior: SnackBarBehavior.floating));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -43,10 +56,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   Container(
                     width: 88,
                     height: 88,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(26),
-                    ),
+                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(26)),
                     child: const Icon(Icons.inventory_2_outlined, size: 44, color: Colors.white),
                   ),
                   const SizedBox(height: 24),
@@ -58,23 +68,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
           Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-            ),
+            decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
             padding: const EdgeInsets.fromLTRB(26, 28, 26, 34),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _field('رقم الجوال', Icons.phone_outlined, _phone, '05X XXX XXXX', ltr: true, keyboard: TextInputType.phone),
+                _field('البريد الإلكتروني', Icons.mail_outline, _email, 'name@restaurant.com', ltr: true, keyboard: TextInputType.emailAddress),
                 const SizedBox(height: 14),
-                _field('رمز المطعم', Icons.apartment_outlined, _code, 'مثال: MOA-1024'),
+                _field('كلمة المرور', Icons.lock_outline, _password, '••••••••', obscure: _obscure, suffix: IconButton(
+                  icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20, color: AppColors.muted3),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                )),
                 const SizedBox(height: 18),
-                PrimaryButton(label: 'إرسال رمز التحقق', onTap: _submit),
+                PrimaryButton(label: _busy ? 'جارٍ الدخول…' : 'تسجيل الدخول', onTap: _busy ? null : _submit),
                 const SizedBox(height: 12),
-                const Center(
-                  child: Text('لا تملك رمز المطعم؟ تواصل مع الإدارة', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                ),
+                const Center(child: Text('نسيت كلمة المرور؟ تواصل مع الإدارة', style: TextStyle(fontSize: 13, color: AppColors.muted))),
               ],
             ),
           ),
@@ -83,19 +91,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Widget _field(String label, IconData icon, TextEditingController c, String hint, {bool ltr = false, TextInputType? keyboard}) {
+  Widget _field(String label, IconData icon, TextEditingController c, String hint,
+      {bool ltr = false, bool obscure = false, TextInputType? keyboard, Widget? suffix}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.muted2)),
         const SizedBox(height: 7),
         Container(
-          decoration: BoxDecoration(
-            color: AppColors.surface2,
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 15),
+          decoration: BoxDecoration(color: AppColors.surface2, border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.only(right: 15, left: 6),
           child: Row(
             children: [
               Icon(icon, size: 18, color: AppColors.muted3),
@@ -103,6 +108,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: TextField(
                   controller: c,
+                  obscureText: obscure,
                   keyboardType: keyboard,
                   textDirection: ltr ? TextDirection.ltr : null,
                   decoration: InputDecoration(
@@ -115,6 +121,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   style: const TextStyle(fontSize: 15, color: AppColors.ink),
                 ),
               ),
+              ?suffix,
             ],
           ),
         ),

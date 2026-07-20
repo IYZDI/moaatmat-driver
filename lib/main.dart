@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config/env.dart';
 import 'theme.dart';
 import 'router.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // نُهيّئ Supabase فقط عند توفّر الإعدادات؛ وإلا يعمل التطبيق بالبيانات التجريبية.
+  if (Env.hasSupabase) {
+    await Supabase.initialize(
+      url: Env.supabaseUrl,
+      // المفتاح العلني (anon/publishable) — نفس مشروع الداشبورد.
+      publishableKey: Env.supabaseAnonKey,
+      headers: Env.tenantHost.isNotEmpty ? {'x-tenant-host': Env.tenantHost} : const {},
+    );
+  }
   runApp(const ProviderScope(child: MoaatmatDriverApp()));
 }
 

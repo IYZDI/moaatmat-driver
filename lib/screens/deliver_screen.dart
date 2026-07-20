@@ -1,6 +1,8 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -15,20 +17,53 @@ class DeliverScreen extends ConsumerStatefulWidget {
 }
 
 class _DeliverScreenState extends ConsumerState<DeliverScreen> {
-  bool _captured = false; // تُستبدل لاحقاً بـ image_picker (كاميرا فعلية)
+  Uint8List? _photo;
   bool _reasonsOpen = false;
+  bool _busy = false;
 
-  void _confirm(String name) {
-    if (!_captured) return;
-    ref.read(driverProvider.notifier).confirmDelivered(widget.orderId);
-    _snack('تم تسليم طلب $name ✅');
-    context.go('/home');
+  Future<void> _capture() async {
+    try {
+      final x = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 70, maxWidth: 1600);
+      if (x == null) return;
+      final bytes = await x.readAsBytes();
+      if (mounted) setState(() => _photo = bytes);
+    } catch (_) {
+      // على الويب/المنصّات بلا كاميرا يفتح مُنتقي الملفات؛ نتجاهل الإلغاء بهدوء.
+    }
   }
 
-  void _fail(String reason) {
-    ref.read(driverProvider.notifier).markFailed(widget.orderId, reason);
-    _snack('سُجّل تعذّر التسليم');
-    context.go('/home');
+  Future<void> _confirm(String name) async {
+    if (_photo == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final notifier = ref.read(driverProvider.notifier);
+      final url = await notifier.uploadProof(widget.orderId, _photo!);
+      await notifier.confirmDelivered(widget.orderId, url);
+      if (!mounted) return;
+      _snack('تم تسليم طلب $name ✅');
+      context.go('/home');
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _snack('تعذّر تأكيد التسليم — حاول مجددًا');
+      }
+    }
+  }
+
+  Future<void> _fail(String reason) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(driverProvider.notifier).markFailed(widget.orderId, reason);
+      if (!mounted) return;
+      _snack('سُجّل تعذّر التسليم');
+      context.go('/home');
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _snack('تعذّر الحفظ — حاول مجددًا');
+      }
+    }
   }
 
   @override
@@ -87,11 +122,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-                    decoration: BoxDecoration(
-                      color: AppColors.dangerBg,
-                      border: Border.all(color: AppColors.dangerBorder),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    decoration: BoxDecoration(color: AppColors.dangerBg, border: Border.all(color: AppColors.dangerBorder), borderRadius: BorderRadius.circular(14)),
                     child: Row(
                       children: const [
                         Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.danger),
@@ -104,11 +135,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                 if (_reasonsOpen) ...[
                   const SizedBox(height: 12),
                   Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: AppColors.dangerBorder),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
+                    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.dangerBorder), borderRadius: BorderRadius.circular(18)),
                     child: Column(
                       children: [
                         for (var i = 0; i < _reasons.length; i++)
@@ -117,11 +144,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                             child: Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                              decoration: BoxDecoration(
-                                border: i < _reasons.length - 1
-                                    ? const Border(bottom: BorderSide(color: AppColors.border2))
-                                    : null,
-                              ),
+                              decoration: BoxDecoration(border: i < _reasons.length - 1 ? const Border(bottom: BorderSide(color: AppColors.border2)) : null),
                               child: Text(_reasons[i], style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: Color(0xFFA13A2F))),
                             ),
                           ),
@@ -136,8 +159,8 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
             padding: const EdgeInsets.fromLTRB(22, 14, 22, 26),
             child: Column(
               children: [
-                PrimaryButton(label: 'تأكيد التسليم', fontSize: 15.5, onTap: _captured ? () => _confirm(name) : null),
-                if (!_captured) ...[
+                PrimaryButton(label: _busy ? 'جارٍ الحفظ…' : 'تأكيد التسليم', fontSize: 15.5, onTap: (_photo != null && !_busy) ? () => _confirm(name) : null),
+                if (_photo == null) ...[
                   const SizedBox(height: 8),
                   const Text('يتم التفعيل بعد إضافة صورة التسليم', style: TextStyle(fontSize: 11.5, color: AppColors.muted3)),
                 ],
@@ -150,40 +173,24 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
   }
 
   Widget _dropzone() {
-    if (_captured) {
+    if (_photo != null) {
       return Container(
-        height: 150,
-        decoration: BoxDecoration(
-          color: AppColors.tealTint2,
-          border: Border.all(color: AppColors.teal, width: 2),
-          borderRadius: BorderRadius.circular(18),
-        ),
+        decoration: BoxDecoration(color: AppColors.tealTint2, border: Border.all(color: AppColors.teal, width: 2), borderRadius: BorderRadius.circular(18)),
+        clipBehavior: Clip.antiAlias,
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.teal),
-              child: const Icon(Icons.check, color: Colors.white, size: 30),
-            ),
-            const SizedBox(height: 12),
-            const Text('تم التقاط صورة التسليم', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.teal)),
-            TextButton(onPressed: () => setState(() => _captured = false), child: const Text('إعادة الالتقاط', style: TextStyle(color: AppColors.muted))),
+            Image.memory(_photo!, height: 160, width: double.infinity, fit: BoxFit.cover),
+            TextButton(onPressed: _capture, child: const Text('إعادة الالتقاط', style: TextStyle(color: AppColors.muted))),
           ],
         ),
       );
     }
     return InkWell(
-      onTap: () => setState(() => _captured = true),
+      onTap: _capture,
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 34),
-        decoration: BoxDecoration(
-          color: AppColors.surface2,
-          border: Border.all(color: const Color(0xFFCFCDC8), width: 2, style: BorderStyle.solid),
-          borderRadius: BorderRadius.circular(18),
-        ),
+        decoration: BoxDecoration(color: AppColors.surface2, border: Border.all(color: const Color(0xFFCFCDC8), width: 2), borderRadius: BorderRadius.circular(18)),
         child: Column(
           children: [
             Container(

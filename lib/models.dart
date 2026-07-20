@@ -11,6 +11,32 @@ class StatusMeta {
   const StatusMeta(this.label, this.fg, this.bg);
 }
 
+/// تحويل حالة قاعدة البيانات (enum الطلبات) إلى حالة واجهة المندوب.
+OrderStatus orderStatusFromDb(String s) {
+  switch (s) {
+    case 'preparing':
+      return OrderStatus.preparing;
+    case 'ready':
+      return OrderStatus.ready;
+    case 'out_for_delivery':
+      return OrderStatus.enroute;
+    case 'delivered':
+      return OrderStatus.delivered;
+    case 'failed':
+    case 'cancelled':
+      return OrderStatus.failed;
+    default:
+      return OrderStatus.preparing;
+  }
+}
+
+class DriverStats {
+  final int total;
+  final int delivered;
+  final int remaining;
+  const DriverStats({required this.total, required this.delivered, required this.remaining});
+}
+
 StatusMeta statusMeta(OrderStatus s) {
   switch (s) {
     case OrderStatus.preparing:

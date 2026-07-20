@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
+import '../config/env.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -45,7 +46,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               children: [
                 _group([
                   _row(Icons.phone_outlined, 'رقم الجوال', trailing: Text(kDriver.phone, style: const TextStyle(fontSize: 13, color: AppColors.muted))),
-                  _row(Icons.mail_outline, 'حالة الاتصال بالداشبورد', trailing: const StatusBadge(label: 'متصل', fg: AppColors.teal, bg: AppColors.tealTint), last: true),
+                  _row(
+                    Icons.mail_outline,
+                    'حالة الاتصال بالداشبورد',
+                    trailing: Env.hasSupabase
+                        ? const StatusBadge(label: 'متصل', fg: AppColors.teal, bg: AppColors.tealTint)
+                        : const StatusBadge(label: 'تجريبي', fg: AppColors.amber, bg: AppColors.amberBg),
+                    last: true,
+                  ),
                 ]),
                 const SizedBox(height: 16),
                 const Padding(
@@ -111,9 +119,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        onTap: () {
-          ref.read(driverProvider.notifier).logout();
-          context.go('/login');
+        onTap: () async {
+          await ref.read(driverProvider.notifier).logout();
+          if (mounted) context.go('/login');
         },
         borderRadius: BorderRadius.circular(14),
         child: Container(

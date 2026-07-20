@@ -10,6 +10,6 @@ void main() {
     await tester.pump();
 
     expect(find.text('Moaatmat Driver'), findsWidgets);
-    expect(find.text('إرسال رمز التحقق'), findsOneWidget);
+    expect(find.text('تسجيل الدخول'), findsOneWidget);
   });
 }

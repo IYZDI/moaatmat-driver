@@ -18,6 +18,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scroll = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    // في الوضع المتّصل نجلب رسائل المحادثة من الخادم (لا يفعل شيئًا في التجريبي).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(driverProvider.notifier).loadMessages(widget.orderId);
+    });
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     _scroll.dispose();

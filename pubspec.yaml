@@ -49,6 +49,12 @@ dependencies:
   # فتح خرائط جوجل للملاحة
   url_launcher: ^6.3.1
 
+  # ربط قاعدة البيانات (نفس مشروع Supabase للداشبورد/تطبيق العميل)
+  supabase_flutter: ^2.8.0
+
+  # التقاط صورة التسليم (كاميرا/معرض)
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
