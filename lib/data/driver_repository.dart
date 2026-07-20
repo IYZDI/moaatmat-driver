@@ -19,4 +19,13 @@ abstract class DriverRepository {
 
   /// يرفع صورة التسليم ويعيد رابطها العلني/الموقّع. المسار: `orgId/orderId.jpg`
   Future<String> uploadProof(String orderId, List<int> bytes);
+
+  /// معرّف المندوب الحالي (admin_users.id) — للاشتراك اللحظي المفلتَر.
+  Future<String?> currentDriverId();
+
+  /// يبثّ موقع المندوب لكل طلباته النشطة؛ يعيد عدد الطلبات المتأثّرة.
+  Future<int> broadcastLocation(double lat, double lng);
+
+  /// بثّ لحظي يُصدر حدثًا عند تغيّر أي من طلبات هذا المندوب (Realtime).
+  Stream<void> myOrdersChanges(String driverId);
 }

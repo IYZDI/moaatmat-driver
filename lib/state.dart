@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models.dart';
 import 'data/repository.dart';
@@ -124,8 +125,13 @@ class DriverNotifier extends Notifier<DriverData> {
   DriverRepository? get _repo => ref.read(driverRepositoryProvider);
   bool get connected => _repo != null;
 
+  StreamSubscription<void>? _ordersSub;
+
   @override
-  DriverData build() => connected ? _connectedInitial() : _mockInitial();
+  DriverData build() {
+    ref.onDispose(() => _ordersSub?.cancel());
+    return connected ? _connectedInitial() : _mockInitial();
+  }
 
   // ---------- المصادقة ----------
   Future<void> signIn(String email, String password) async {
@@ -133,18 +139,30 @@ class DriverNotifier extends Notifier<DriverData> {
       await _repo!.signIn(email, password);
       state = state.copyWith(authed: true);
       await refresh();
+      await _subscribeOrders();
     } else {
       state = state.copyWith(authed: true);
     }
   }
 
   Future<void> logout() async {
+    await _ordersSub?.cancel();
+    _ordersSub = null;
     if (connected) {
       await _repo!.signOut();
       state = _connectedInitial();
     } else {
       state = state.copyWith(authed: false);
     }
+  }
+
+  /// اشتراك لحظي: عند تغيّر أي من طلبات المندوب نُعيد التحميل (Realtime).
+  Future<void> _subscribeOrders() async {
+    if (!connected) return;
+    final id = await _repo!.currentDriverId();
+    if (id == null) return;
+    await _ordersSub?.cancel();
+    _ordersSub = _repo!.myOrdersChanges(id).listen((_) => refresh());
   }
 
   /// إعادة تحميل الطلبات والإحصاءات والسجل (الوضع المتّصل فقط).

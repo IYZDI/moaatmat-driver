@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
+import '../data/repository.dart';
+import '../data/location_broadcaster.dart';
 
 /// خريطة تخطيطية مطابقة للتصميم (طرق ومبانٍ ومسار وموقع المندوب والوجهة).
 /// الإحداثيات في فضاء 300×672 كما في التصميم ثم تُقاس إلى حجم الشاشة.
@@ -63,9 +65,37 @@ class _MapPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class MapScreen extends ConsumerWidget {
+class MapScreen extends ConsumerStatefulWidget {
   final String orderId;
   const MapScreen({super.key, required this.orderId});
+
+  @override
+  ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends ConsumerState<MapScreen> {
+  LocationBroadcaster? _broadcaster;
+  bool _broadcasting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // في الوضع المتّصل نبثّ موقع المندوب طوال وجوده على شاشة الملاحة.
+    final repo = ref.read(driverRepositoryProvider);
+    if (repo != null) {
+      _broadcaster = LocationBroadcaster(repo);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final ok = await _broadcaster!.start();
+        if (mounted) setState(() => _broadcasting = ok);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _broadcaster?.stop();
+    super.dispose();
+  }
 
   Future<void> _openMaps(String address) async {
     final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}');
@@ -75,7 +105,8 @@ class MapScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final orderId = widget.orderId;
     final order = ref.watch(driverProvider).orderById(orderId);
     final name = order?.name ?? 'العميل';
     final address = order?.address ?? '';
@@ -123,6 +154,20 @@ class MapScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (_broadcasting)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(color: AppColors.teal, borderRadius: BorderRadius.circular(20)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.location_on, size: 14, color: Colors.white),
+                        SizedBox(width: 6),
+                        Text('يبثّ موقعك للعميل', style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

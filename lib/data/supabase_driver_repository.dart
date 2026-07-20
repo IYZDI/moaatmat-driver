@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models.dart';
@@ -114,6 +115,46 @@ class SupabaseDriverRepository implements DriverRepository {
           fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
         );
     return _db.storage.from('delivery-proofs').getPublicUrl(path);
+  }
+
+  @override
+  Future<String?> currentDriverId() async {
+    final id = await _db.rpc('current_driver_id');
+    return id?.toString();
+  }
+
+  @override
+  Future<int> broadcastLocation(double lat, double lng) async {
+    final n = await _db.rpc('broadcast_my_delivery_location', params: {'p_lat': lat, 'p_lng': lng});
+    return (n is int) ? n : 0;
+  }
+
+  @override
+  Stream<void> myOrdersChanges(String driverId) {
+    RealtimeChannel? channel;
+    late final StreamController<void> ctrl;
+    ctrl = StreamController<void>(
+      onListen: () {
+        channel = _db
+            .channel('driver-orders-$driverId')
+            .onPostgresChanges(
+              event: PostgresChangeEvent.all,
+              schema: 'public',
+              table: 'order_deliveries',
+              filter: PostgresChangeFilter(
+                type: PostgresChangeFilterType.eq,
+                column: 'driver_id',
+                value: driverId,
+              ),
+              callback: (_) => ctrl.add(null),
+            )
+            .subscribe();
+      },
+      onCancel: () async {
+        if (channel != null) await _db.removeChannel(channel!);
+      },
+    );
+    return ctrl.stream;
   }
 
   static String _fmt(DateTime d) {

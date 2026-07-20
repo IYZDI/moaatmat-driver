@@ -55,6 +55,9 @@ dependencies:
   # التقاط صورة التسليم (كاميرا/معرض)
   image_picker: ^1.1.2
 
+  # بثّ موقع المندوب المباشر أثناء التوصيل
+  geolocator: ^13.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
