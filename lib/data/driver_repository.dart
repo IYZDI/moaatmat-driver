@@ -4,8 +4,9 @@ import '../models.dart';
 class DriverIdentity {
   final String driverId;
   final String name;
+  final String phone;
   final String orgName;
-  const DriverIdentity({required this.driverId, required this.name, required this.orgName});
+  const DriverIdentity({required this.driverId, required this.name, required this.phone, required this.orgName});
 }
 
 /// عقد الوصول لبيانات المندوب — نموذج الرمز (session_token). تنفيذان: تجريبي
@@ -24,6 +25,9 @@ abstract class DriverRepository {
   /// يستعيد الجلسة المحفوظة إن وُجدت (عند بدء التطبيق).
   Future<bool> restoreSession();
   Future<void> signOut();
+
+  /// يحدّث اسم المندوب في الداشبورد (يُستخدم عند أول دخول إن لم يكن له اسم).
+  Future<void> updateName(String name);
 
   Future<List<Order>> myOrders();
   Future<DriverStats> todayStats();

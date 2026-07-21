@@ -81,9 +81,11 @@ class CustomersScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(o.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              Expanded(
+                child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 8),
               const StatusBadge(label: 'التالي', fg: AppColors.teal, bg: AppColors.tealTint),
             ],
           ),
@@ -91,10 +93,13 @@ class CustomersScreen extends ConsumerWidget {
           _addressRow(o.address),
           const SizedBox(height: 12),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('#${o.id}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
-              Text('التوصيل المفضّل ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('التوصيل المفضّل ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -133,9 +138,11 @@ class CustomersScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(o.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              Expanded(
+                child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 8),
               const StatusBadge(label: 'بالانتظار', fg: AppColors.muted, bg: AppColors.border2),
             ],
           ),

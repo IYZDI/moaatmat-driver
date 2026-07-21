@@ -72,5 +72,12 @@
 	<string>يُستخدم للوصول إلى الصور عند إرفاق صورة تسليم الطلب.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>يُستخدم موقعك لبثّه للعميل أثناء توصيل الطلب.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>يُبثّ موقعك للعميل أثناء التوصيل حتى لو كان التطبيق في الخلفية أو الشاشة مقفلة.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>

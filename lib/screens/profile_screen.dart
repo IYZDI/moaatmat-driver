@@ -17,6 +17,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final data = ref.watch(driverProvider);
+    final name = data.name.trim().isNotEmpty ? data.name.trim() : 'مندوب';
+    final phone = data.phone.trim().isNotEmpty ? data.phone.trim() : '—';
     return Scaffold(
       backgroundColor: AppColors.surface3,
       body: Column(
@@ -31,9 +34,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   alignment: Alignment.center,
                   margin: const EdgeInsets.fromLTRB(0, 14, 0, 12),
                   decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: 0.18)),
-                  child: Text(kDriver.initial, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700)),
+                  child: Text(driverInitial(name), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700)),
                 ),
-                Text(kDriver.name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                Text(name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 3),
                 Text('موظف توصيل · مطعم مؤتمات', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13)),
                 const SizedBox(height: 30),
@@ -45,10 +48,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
               children: [
                 _group([
-                  _row(Icons.phone_outlined, 'رقم الجوال', trailing: Text(kDriver.phone, style: const TextStyle(fontSize: 13, color: AppColors.muted))),
+                  _row(Icons.phone_outlined, 'رقم الجوال', trailing: Text(phone, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 13, color: AppColors.muted))),
                   _row(
                     Icons.mail_outline,
-                    'حالة الاتصال بالداشبورد',
+                    'حالة الاتصال بالمطعم',
                     trailing: Env.hasSupabase
                         ? const StatusBadge(label: 'متصل', fg: AppColors.teal, bg: AppColors.tealTint)
                         : const StatusBadge(label: 'تجريبي', fg: AppColors.amber, bg: AppColors.amberBg),

@@ -64,9 +64,11 @@ class PickupScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(o.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              Expanded(
+                child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 8),
               Text('#${o.id}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.muted3)),
             ],
           ),

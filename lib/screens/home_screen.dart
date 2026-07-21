@@ -12,6 +12,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(driverProvider);
+    final name = data.name.trim().isNotEmpty ? data.name.trim() : 'مندوب';
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -29,13 +30,13 @@ class HomeScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('مساءً 👋', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
-                            Text(kDriver.name, style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w700)),
+                            Text(name, style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w700)),
                             const SizedBox(height: 3),
                             Text(kDriver.place, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12.5)),
                           ],
                         ),
                       ),
-                      _avatar(kDriver.initial, 48, 18),
+                      _avatar(driverInitial(name), 48, 18),
                     ],
                   ),
                 ),

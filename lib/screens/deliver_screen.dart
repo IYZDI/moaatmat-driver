@@ -87,12 +87,14 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                         child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
                       ),
                       const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('تأكيد التسليم', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-                          Text('$name · #${widget.orderId}', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5)),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('تأكيد التسليم', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                            Text('$name · #${widget.orderId}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5)),
+                          ],
+                        ),
                       ),
                     ],
                   ),

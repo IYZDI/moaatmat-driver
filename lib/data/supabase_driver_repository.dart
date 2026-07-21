@@ -13,6 +13,7 @@ class SupabaseDriverRepository implements DriverRepository {
   static const _kToken = 'drv_token';
   static const _kId = 'drv_id';
   static const _kName = 'drv_name';
+  static const _kPhone = 'drv_phone';
   static const _kOrg = 'drv_org';
 
   String? _token;
@@ -74,15 +75,21 @@ class SupabaseDriverRepository implements DriverRepository {
         throw Exception(data['reason'] == 'invalid_otp' ? 'رمز التحقّق غير صحيح' : (data['error'] ?? 'تعذّر الدخول'));
       }
       _token = data['token'] as String;
+      // الجوال الحقيقي: نفضّل ما يعيده الخادم (driver_phone)، وإلا الجوال المُدخَل
+      // مُطبَّعًا إلى صيغة E.164.
+      final serverPhone = (data['driver_phone'] ?? '') as String? ?? '';
+      final phoneVal = serverPhone.trim().isNotEmpty ? serverPhone.trim() : _e164(phone);
       _identity = DriverIdentity(
         driverId: (data['driver_id'] ?? '').toString(),
         name: (data['driver_name'] ?? '') as String? ?? '',
+        phone: phoneVal,
         orgName: (data['org_name'] ?? '') as String? ?? '',
       );
       final sp = await SharedPreferences.getInstance();
       await sp.setString(_kToken, _token!);
       await sp.setString(_kId, _identity!.driverId);
       await sp.setString(_kName, _identity!.name);
+      await sp.setString(_kPhone, _identity!.phone);
       await sp.setString(_kOrg, _identity!.orgName);
       return _identity!;
     } catch (e) {
@@ -100,9 +107,26 @@ class SupabaseDriverRepository implements DriverRepository {
     _identity = DriverIdentity(
       driverId: sp.getString(_kId) ?? '',
       name: sp.getString(_kName) ?? '',
+      phone: sp.getString(_kPhone) ?? '',
       orgName: sp.getString(_kOrg) ?? '',
     );
     return true;
+  }
+
+  @override
+  Future<void> updateName(String name) async {
+    final n = name.trim();
+    if (n.isEmpty || _identity == null) return;
+    // يتبع اصطلاح دوال RPC للمندوب (مثل driver_set_status).
+    await _db.rpc('driver_set_name', params: {'p_token': _token, 'p_name': n});
+    _identity = DriverIdentity(
+      driverId: _identity!.driverId,
+      name: n,
+      phone: _identity!.phone,
+      orgName: _identity!.orgName,
+    );
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kName, n);
   }
 
   @override
@@ -113,6 +137,7 @@ class SupabaseDriverRepository implements DriverRepository {
     await sp.remove(_kToken);
     await sp.remove(_kId);
     await sp.remove(_kName);
+    await sp.remove(_kPhone);
     await sp.remove(_kOrg);
   }
 

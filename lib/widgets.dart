@@ -1,30 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'theme.dart';
 
-/// شريط حالة الجوال (9:41 + شبكة/واي فاي/بطارية).
+/// مساحة علوية آمنة بدل شريط الحالة الوهمي القديم.
+///
+/// كان هذا الكلاس سابقًا يرسم شريطًا وهميًّا (9:41 + بطارية/شبكة)، وهو ما كان
+/// يظهر مكرَّرًا فوق شريط النظام الحقيقي على iOS ويُفسد المقاسات. الآن لم يعُد
+/// يرسم شيئًا مرئيًّا: يحجز فقط ارتفاع شريط النظام الحقيقي (يشمل الـ Dynamic
+/// Island) عبر `MediaQuery.padding.top`، فتنزاح المحتويات لأسفله بشكل صحيح،
+/// ويضبط لون أيقونات شريط النظام حسب لون خلفية الشاشة.
 class StatusBar extends StatelessWidget {
+  /// true عندما تكون الخلفية داكنة/تركوازية → أيقونات النظام بيضاء.
   final bool dark;
   const StatusBar({super.key, this.dark = false});
 
   @override
   Widget build(BuildContext context) {
-    final c = dark ? Colors.white : AppColors.ink;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 14, 26, 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text('9:41', style: TextStyle(color: c, fontSize: 13, fontWeight: FontWeight.w600)),
-          Row(children: [
-            Icon(Icons.signal_cellular_alt, size: 15, color: c),
-            const SizedBox(width: 6),
-            Icon(Icons.wifi, size: 15, color: c),
-            const SizedBox(width: 6),
-            Icon(Icons.battery_full, size: 17, color: c),
-          ]),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarBrightness: dark ? Brightness.dark : Brightness.light, // iOS
+        statusBarIconBrightness: dark ? Brightness.light : Brightness.dark, // Android
       ),
+      // العرض الكامل ضروري: بعض الرؤوس (كشاشة الحساب) لا تحوي عنصرًا آخر يمدّها،
+      // فلولا ذلك ينكمش الرأس التركوازي إلى عرض المحتوى ويظهر في المنتصف.
+      // داخل SafeArea تكون padding.top = 0 فلا تُضاف مسافة مزدوجة.
+      child: SizedBox(width: double.infinity, height: MediaQuery.of(context).padding.top),
     );
   }
 }

@@ -15,7 +15,6 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _org = TextEditingController();
   final _phone = TextEditingController();
-  final _name = TextEditingController();
   final _otp = TextEditingController();
   bool _busy = false;
   bool _otpStep = false;
@@ -25,7 +24,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _org.dispose();
     _phone.dispose();
-    _name.dispose();
     _otp.dispose();
     super.dispose();
   }
@@ -59,13 +57,69 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
     setState(() => _busy = true);
     try {
-      await ref.read(driverProvider.notifier).verifyOtp(_org.text, _phone.text, _otp.text, _name.text);
+      await ref.read(driverProvider.notifier).verifyOtp(_org.text, _phone.text, _otp.text, '');
+      if (!mounted) return;
+      // أول دخول ولا اسم مسجّل في الداشبورد → نطلب الاسم مرّة واحدة فقط.
+      if (ref.read(driverProvider).name.trim().isEmpty) {
+        await _promptName();
+      }
       if (mounted) context.go('/home');
     } catch (e) {
       if (mounted) _snack(_msg(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// نافذة إدخال الاسم لأول مرة (يمكن تخطّيها بـ«لاحقًا»).
+  Future<void> _promptName() async {
+    final ctrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dctx) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (dctx, setD) => AlertDialog(
+            title: const Text('أهلاً بك 👋'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('ما اسمك؟ سيظهر لفريق المطعم في الداشبورد.',
+                    style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(hintText: 'اسمك الكامل', border: OutlineInputBorder()),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.of(dctx).pop(),
+                child: const Text('لاحقًا', style: TextStyle(color: AppColors.muted)),
+              ),
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        if (ctrl.text.trim().isEmpty) return;
+                        setD(() => saving = true);
+                        final ok = await ref.read(driverProvider.notifier).setDriverName(ctrl.text);
+                        if (dctx.mounted) Navigator.of(dctx).pop();
+                        if (!ok && mounted) _snack('حُفظ الاسم محليًّا (تعذّر إرساله للخادم)');
+                      },
+                child: const Text('حفظ', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.teal)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
   }
 
   String _msg(Object e) => e.toString().replaceFirst('Exception: ', '');
@@ -84,10 +138,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(26)),
-                    child: const Icon(Icons.inventory_2_outlined, size: 44, color: Colors.white),
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 22, offset: const Offset(0, 8))],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: Image.asset('assets/app_icon.png', width: 96, height: 96, fit: BoxFit.cover),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text('Moaatmat Driver', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
@@ -114,8 +174,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           _field('رمز المؤسسة', Icons.qr_code_2, _org, 'A1B2C3', ltr: true, caps: true),
           const SizedBox(height: 14),
           _field('رقم الجوال', Icons.phone_outlined, _phone, '05xxxxxxxx', ltr: true, keyboard: TextInputType.phone),
-          const SizedBox(height: 14),
-          _field('الاسم (اختياري — أول مرة فقط)', Icons.person_outline, _name, 'اسمك'),
           const SizedBox(height: 18),
           PrimaryButton(label: _busy ? 'جارٍ الإرسال…' : 'إرسال رمز التحقّق', onTap: _busy ? null : _send),
           const SizedBox(height: 12),

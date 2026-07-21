@@ -22,6 +22,12 @@ const kDriver = Driver(
 
 const kMockTotal = 12;
 
+/// الحرف الأول لاسم المندوب (للأفاتار). يعيد '؟' إن كان الاسم فارغًا.
+String driverInitial(String name) {
+  final t = name.trim();
+  return t.isEmpty ? '؟' : t[0];
+}
+
 /// وقت الآن بصيغة عربية بسيطة (٨:١٤ م).
 String nowTime() {
   final d = DateTime.now();
@@ -35,6 +41,7 @@ String nowTime() {
 
 class DriverData {
   final bool authed;
+  final String name;
   final String phone;
   final List<Order> orders;
   final List<HistoryItem> history;
@@ -45,6 +52,7 @@ class DriverData {
 
   const DriverData({
     required this.authed,
+    required this.name,
     required this.phone,
     required this.orders,
     required this.history,
@@ -63,6 +71,7 @@ class DriverData {
 
   DriverData copyWith({
     bool? authed,
+    String? name,
     String? phone,
     List<Order>? orders,
     List<HistoryItem>? history,
@@ -73,6 +82,7 @@ class DriverData {
   }) =>
       DriverData(
         authed: authed ?? this.authed,
+        name: name ?? this.name,
         phone: phone ?? this.phone,
         orders: orders ?? this.orders,
         history: history ?? this.history,
@@ -108,6 +118,7 @@ final _seedMessages = <String, List<ChatMessage>>{
 
 DriverData _mockInitial() => DriverData(
       authed: false,
+      name: 'مندوب مؤتمات',
       phone: '+966 55 123 4567',
       orders: List.of(_seedOrders),
       history: List.of(_seedHistory),
@@ -118,7 +129,7 @@ DriverData _mockInitial() => DriverData(
     );
 
 DriverData _connectedInitial() => const DriverData(
-      authed: false, phone: '', orders: [], history: [], messages: {}, total: 0, delivered: 0, remaining: 0,
+      authed: false, name: '', phone: '', orders: [], history: [], messages: {}, total: 0, delivered: 0, remaining: 0,
     );
 
 class DriverNotifier extends Notifier<DriverData> {
@@ -139,10 +150,17 @@ class DriverNotifier extends Notifier<DriverData> {
 
   Future<void> _restore() async {
     if (await _repo!.restoreSession()) {
-      state = state.copyWith(authed: true);
+      state = _applyIdentity(state.copyWith(authed: true));
       await refresh();
       await _subscribeOrders();
     }
+  }
+
+  /// يُدخل اسم المندوب وجواله الحقيقيَّين (من الداشبورد) في الحالة.
+  DriverData _applyIdentity(DriverData d) {
+    final id = _repo?.identity;
+    if (id == null) return d;
+    return d.copyWith(name: id.name, phone: id.phone);
   }
 
   // ---------- المصادقة (OTP: رمز مؤسسة + جوال) ----------
@@ -155,12 +173,31 @@ class DriverNotifier extends Notifier<DriverData> {
   Future<void> verifyOtp(String orgCode, String phone, String otp, String name) async {
     if (connected) {
       await _repo!.verifyOtp(orgCode, phone, otp, name.trim().isEmpty ? null : name.trim());
-      state = state.copyWith(authed: true);
+      state = _applyIdentity(state.copyWith(authed: true));
       await refresh();
       await _subscribeOrders();
     } else {
       state = state.copyWith(authed: true);
     }
+  }
+
+  /// يحفظ اسم المندوب عند أول دخول (لمن لا اسم له). يعيد true عند نجاح الحفظ
+  /// في الخادم. عند تعذّر الحفظ نعكس الاسم محليًّا حتى لا يضيع.
+  Future<bool> setDriverName(String name) async {
+    final n = name.trim();
+    if (n.isEmpty) return false;
+    if (connected) {
+      try {
+        await _repo!.updateName(n);
+        state = _applyIdentity(state);
+        return true;
+      } catch (_) {
+        state = state.copyWith(name: n);
+        return false;
+      }
+    }
+    state = state.copyWith(name: n);
+    return true;
   }
 
   Future<void> logout() async {
