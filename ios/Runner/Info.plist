@@ -67,9 +67,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>ÙŠÙØ³ØªØ®Ø¯Ù… Ø§Ù„ÙƒØ§Ù…ÙŠØ±Ø§ Ù„Ø§Ù„ØªÙ‚Ø§Ø· ØµÙˆØ±Ø© Ø¥Ø«Ø¨Ø§Øª ØªØ³Ù„ÙŠÙ… Ø§Ù„Ø·Ù„Ø¨ Ù„Ù„Ø¹Ù…ÙŠÙ„.</string>
+	<string>يُستخدم الكاميرا لالتقاط صورة إثبات تسليم الطلب للعميل.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ÙŠÙØ³ØªØ®Ø¯Ù… Ù„Ù„ÙˆØµÙˆÙ„ Ø¥Ù„Ù‰ Ø§Ù„ØµÙˆØ± Ø¹Ù†Ø¯ Ø¥Ø±ÙØ§Ù‚ ØµÙˆØ±Ø© ØªØ³Ù„ÙŠÙ… Ø§Ù„Ø·Ù„Ø¨.</string>
+	<string>يُستخدم للوصول إلى الصور عند إرفاق صورة تسليم الطلب.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>يُستخدم موقعك لبثّه للعميل أثناء توصيل الطلب.</string>
 </dict>
