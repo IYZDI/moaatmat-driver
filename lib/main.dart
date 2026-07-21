@@ -12,9 +12,9 @@ Future<void> main() async {
   if (Env.hasSupabase) {
     await Supabase.initialize(
       url: Env.supabaseUrl,
-      // المفتاح العلني (anon/publishable) — نفس مشروع الداشبورد.
+      // المفتاح العلني (anon/publishable) — نفس مشروع الداشبورد. المندوب يُصادَق
+      // برمز الجلسة داخل دوال RPC (لا جلسة Supabase)، ورمز المؤسسة يحمل المؤسسة.
       publishableKey: Env.supabaseAnonKey,
-      headers: Env.tenantHost.isNotEmpty ? {'x-tenant-host': Env.tenantHost} : const {},
     );
   }
   runApp(const ProviderScope(child: MoaatmatDriverApp()));

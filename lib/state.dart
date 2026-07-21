@@ -130,13 +130,31 @@ class DriverNotifier extends Notifier<DriverData> {
   @override
   DriverData build() {
     ref.onDispose(() => _ordersSub?.cancel());
-    return connected ? _connectedInitial() : _mockInitial();
+    if (connected) {
+      _restore(); // استعادة الجلسة المحفوظة (غير متزامنة)
+      return _connectedInitial();
+    }
+    return _mockInitial();
   }
 
-  // ---------- المصادقة ----------
-  Future<void> signIn(String email, String password) async {
+  Future<void> _restore() async {
+    if (await _repo!.restoreSession()) {
+      state = state.copyWith(authed: true);
+      await refresh();
+      await _subscribeOrders();
+    }
+  }
+
+  // ---------- المصادقة (OTP: رمز مؤسسة + جوال) ----------
+  /// يرسل رمز التحقّق؛ يعيد اسم المؤسسة. يرمي عند الفشل.
+  Future<String> sendOtp(String orgCode, String phone) async {
+    if (!connected) return '';
+    return _repo!.sendOtp(orgCode, phone);
+  }
+
+  Future<void> verifyOtp(String orgCode, String phone, String otp, String name) async {
     if (connected) {
-      await _repo!.signIn(email, password);
+      await _repo!.verifyOtp(orgCode, phone, otp, name.trim().isEmpty ? null : name.trim());
       state = state.copyWith(authed: true);
       await refresh();
       await _subscribeOrders();
@@ -159,8 +177,8 @@ class DriverNotifier extends Notifier<DriverData> {
   /// اشتراك لحظي: عند تغيّر أي من طلبات المندوب نُعيد التحميل (Realtime).
   Future<void> _subscribeOrders() async {
     if (!connected) return;
-    final id = await _repo!.currentDriverId();
-    if (id == null) return;
+    final id = _repo!.driverId;
+    if (id == null || id.isEmpty) return;
     await _ordersSub?.cancel();
     _ordersSub = _repo!.myOrdersChanges(id).listen((_) => refresh());
   }
@@ -205,15 +223,10 @@ class DriverNotifier extends Notifier<DriverData> {
     }
   }
 
-  /// يرفع صورة التسليم ويعيد رابطها (تجريبيًّا رابط وهمي).
-  Future<String> uploadProof(String orderId, List<int> bytes) async {
-    if (connected) return _repo!.uploadProof(orderId, bytes);
-    return 'mock://delivery-proof/$orderId';
-  }
-
-  Future<void> confirmDelivered(String id, String photoUrl) async {
+  /// تأكيد التسليم مع صورة الإثبات (تُرفع عبر دالة الحافة في الوضع المتّصل).
+  Future<void> confirmDelivered(String id, List<int> photoBytes) async {
     if (connected) {
-      await _repo!.confirmDelivered(id, photoUrl);
+      await _repo!.confirmDelivered(id, photoBytes);
       await refresh();
     } else {
       _completeMock(id, ok: true, sub: 'سُلّم ${nowTime()}');
@@ -242,15 +255,20 @@ class DriverNotifier extends Notifier<DriverData> {
   }
 
   // ---------- المحادثة ----------
+  // id = معرّف التوصيلة (delivery_id)؛ المحادثة مرتبطة بـ order_id للطلب.
   Future<void> loadMessages(String id) async {
     if (!connected) return;
-    final msgs = await _repo!.messages(id);
+    final orderId = state.orderById(id)?.orderId;
+    if (orderId == null) return; // توصيلة اشتراك بلا طلب → لا محادثة
+    final msgs = await _repo!.messages(orderId);
     state = state.copyWith(messages: {...state.messages, id: msgs});
   }
 
   Future<void> sendMessage(String id, String text) async {
     if (connected) {
-      await _repo!.sendMessage(id, text);
+      final orderId = state.orderById(id)?.orderId;
+      if (orderId == null) return;
+      await _repo!.sendMessage(orderId, text);
       await loadMessages(id);
     } else {
       final list = List<ChatMessage>.of(state.messages[id] ?? const []);

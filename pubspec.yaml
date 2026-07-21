@@ -58,6 +58,9 @@ dependencies:
   # بثّ موقع المندوب المباشر أثناء التوصيل
   geolocator: ^13.0.1
 
+  # حفظ رمز جلسة المندوب (session_token) محليًّا
+  shared_preferences: ^2.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

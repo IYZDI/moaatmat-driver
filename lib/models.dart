@@ -55,7 +55,8 @@ StatusMeta statusMeta(OrderStatus s) {
 }
 
 class Order {
-  final String id;
+  final String id; // = delivery_id (للحالة والتوجيه)
+  final String? orderId; // = order_id (للمحادثة؛ فارغ لتوصيلات الاشتراكات)
   final String name;
   final String initial;
   final String items;
@@ -67,6 +68,7 @@ class Order {
 
   const Order({
     required this.id,
+    this.orderId,
     required this.name,
     required this.initial,
     required this.items,
@@ -79,6 +81,7 @@ class Order {
 
   Order copyWith({OrderStatus? status}) => Order(
         id: id,
+        orderId: orderId,
         name: name,
         initial: initial,
         items: items,

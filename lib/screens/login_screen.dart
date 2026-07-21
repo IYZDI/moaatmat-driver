@@ -5,6 +5,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
 
+/// دخول المندوب: رمز المؤسسة + الجوال → رمز تحقّق (OTP) → دخول.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -12,33 +13,62 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _email = TextEditingController();
-  final _password = TextEditingController();
+  final _org = TextEditingController();
+  final _phone = TextEditingController();
+  final _name = TextEditingController();
+  final _otp = TextEditingController();
   bool _busy = false;
-  bool _obscure = true;
+  bool _otpStep = false;
+  String _orgName = '';
 
   @override
   void dispose() {
-    _email.dispose();
-    _password.dispose();
+    _org.dispose();
+    _phone.dispose();
+    _name.dispose();
+    _otp.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  void _snack(String m) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(m), behavior: SnackBarBehavior.floating));
+  }
+
+  Future<void> _send() async {
+    if (_org.text.trim().isEmpty || _phone.text.trim().isEmpty) {
+      _snack('أدخل رمز المؤسسة ورقم الجوال');
+      return;
+    }
     setState(() => _busy = true);
     try {
-      await ref.read(driverProvider.notifier).signIn(_email.text, _password.text);
-      if (mounted) context.go('/home');
+      final org = await ref.read(driverProvider.notifier).sendOtp(_org.text, _phone.text);
+      if (mounted) setState(() { _orgName = org; _otpStep = true; });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(const SnackBar(content: Text('تعذّر تسجيل الدخول — تحقّق من الإيميل وكلمة المرور'), behavior: SnackBarBehavior.floating));
-      }
+      if (mounted) _snack(_msg(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  Future<void> _verify() async {
+    if (_otp.text.trim().length < 4) {
+      _snack('أدخل رمز التحقّق');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await ref.read(driverProvider.notifier).verifyOtp(_org.text, _phone.text, _otp.text, _name.text);
+      if (mounted) context.go('/home');
+    } catch (e) {
+      if (mounted) _snack(_msg(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _msg(Object e) => e.toString().replaceFirst('Exception: ', '');
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +92,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 24),
                   const Text('Moaatmat Driver', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
-                  Text('سجّل الدخول لبدء مناوبتك', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
+                  Text(_otpStep ? 'أدخل رمز التحقّق المُرسَل إليك' : 'سجّل الدخول لبدء مناوبتك',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
                 ],
               ),
             ),
@@ -70,29 +101,51 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           Container(
             decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(30))),
             padding: const EdgeInsets.fromLTRB(26, 28, 26, 34),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _field('البريد الإلكتروني', Icons.mail_outline, _email, 'name@restaurant.com', ltr: true, keyboard: TextInputType.emailAddress),
-                const SizedBox(height: 14),
-                _field('كلمة المرور', Icons.lock_outline, _password, '••••••••', obscure: _obscure, suffix: IconButton(
-                  icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20, color: AppColors.muted3),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                )),
-                const SizedBox(height: 18),
-                PrimaryButton(label: _busy ? 'جارٍ الدخول…' : 'تسجيل الدخول', onTap: _busy ? null : _submit),
-                const SizedBox(height: 12),
-                const Center(child: Text('نسيت كلمة المرور؟ تواصل مع الإدارة', style: TextStyle(fontSize: 13, color: AppColors.muted))),
-              ],
-            ),
+            child: _otpStep ? _otpForm() : _enterForm(),
           ),
         ],
       ),
     );
   }
 
+  Widget _enterForm() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _field('رمز المؤسسة', Icons.qr_code_2, _org, 'A1B2C3', ltr: true, caps: true),
+          const SizedBox(height: 14),
+          _field('رقم الجوال', Icons.phone_outlined, _phone, '05xxxxxxxx', ltr: true, keyboard: TextInputType.phone),
+          const SizedBox(height: 14),
+          _field('الاسم (اختياري — أول مرة فقط)', Icons.person_outline, _name, 'اسمك'),
+          const SizedBox(height: 18),
+          PrimaryButton(label: _busy ? 'جارٍ الإرسال…' : 'إرسال رمز التحقّق', onTap: _busy ? null : _send),
+          const SizedBox(height: 12),
+          const Center(child: Text('يصلك الرمز برسالة نصّية', style: TextStyle(fontSize: 13, color: AppColors.muted))),
+        ],
+      );
+
+  Widget _otpForm() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Text('أُرسل إلى ${_phone.text}${_orgName.isNotEmpty ? ' · $_orgName' : ''}',
+                  style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+            ),
+          ),
+          _field('رمز التحقّق', Icons.lock_outline, _otp, '••••', ltr: true, keyboard: TextInputType.number, big: true),
+          const SizedBox(height: 18),
+          PrimaryButton(label: _busy ? 'جارٍ التحقّق…' : 'دخول', onTap: _busy ? null : _verify),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _busy ? null : () => setState(() { _otpStep = false; _otp.clear(); }),
+            child: const Text('تغيير الرقم', style: TextStyle(color: AppColors.muted)),
+          ),
+        ],
+      );
+
   Widget _field(String label, IconData icon, TextEditingController c, String hint,
-      {bool ltr = false, bool obscure = false, TextInputType? keyboard, Widget? suffix}) {
+      {bool ltr = false, bool caps = false, bool big = false, TextInputType? keyboard}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -108,9 +161,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: TextField(
                   controller: c,
-                  obscureText: obscure,
                   keyboardType: keyboard,
                   textDirection: ltr ? TextDirection.ltr : null,
+                  textCapitalization: caps ? TextCapitalization.characters : TextCapitalization.none,
+                  textAlign: big ? TextAlign.center : TextAlign.start,
                   decoration: InputDecoration(
                     isCollapsed: true,
                     contentPadding: const EdgeInsets.symmetric(vertical: 14),
@@ -118,10 +172,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     hintText: hint,
                     hintStyle: const TextStyle(color: AppColors.muted3, fontSize: 15),
                   ),
-                  style: const TextStyle(fontSize: 15, color: AppColors.ink),
+                  style: TextStyle(fontSize: big ? 22 : 15, fontWeight: big ? FontWeight.w800 : FontWeight.w400,
+                      letterSpacing: big ? 8 : (caps ? 3 : 0), color: AppColors.ink),
                 ),
               ),
-              ?suffix,
             ],
           ),
         ),

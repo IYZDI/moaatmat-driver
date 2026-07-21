@@ -37,8 +37,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
     setState(() => _busy = true);
     try {
       final notifier = ref.read(driverProvider.notifier);
-      final url = await notifier.uploadProof(widget.orderId, _photo!);
-      await notifier.confirmDelivered(widget.orderId, url);
+      await notifier.confirmDelivered(widget.orderId, _photo!);
       if (!mounted) return;
       _snack('تم تسليم طلب $name ✅');
       context.go('/home');

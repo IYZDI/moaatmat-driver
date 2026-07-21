@@ -1,19 +1,20 @@
-/// إعدادات البيئة — تُمرَّر وقت البناء عبر --dart-define أو ملف dart-define.
-/// مثال تشغيل محليًّا:
-///   flutter run --dart-define=SUPABASE_URL=https://xxx.supabase.co \
-///               --dart-define=SUPABASE_ANON_KEY=eyJ... \
-///               --dart-define=TENANT_HOST=`slug`.moaatmat.com
+/// إعدادات البيئة. المفتاح العلني (anon) آمن للتضمين في التطبيق كما في تطبيق
+/// العميل. يمكن تجاوزه وقت البناء عبر --dart-define عند الحاجة.
 ///
-/// طالما SUPABASE_URL فارغ، يعمل التطبيق في «الوضع التجريبي» (بيانات وهمية)
-/// تمامًا كما هو الآن — دون أي اتصال بالشبكة.
+/// نموذج المندوب الجديد: «رمز المؤسسة + الجوال + OTP» ورمز جلسة (session_token)
+/// — لا يحتاج ترويسة x-tenant-host لأن رمز المؤسسة يحمل المؤسسة.
 class Env {
   Env._();
 
-  static const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  static const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-  /// مضيف المستأجر لعزل RLS متعدّد الشركات (ترويسة x-tenant-host).
-  static const tenantHost = String.fromEnvironment('TENANT_HOST');
+  static const supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://oikyrjfctznnjhimkagh.supabase.co',
+  );
+  static const supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pa3lyamZjdHpubmpoaW1rYWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NTg1NzYsImV4cCI6MjA5OTUzNDU3Nn0.jURO-8QedMsZlRjskXJlYN43Z6XnRNBQb68BKStW8V4',
+  );
 
   static bool get hasSupabase =>
       supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;

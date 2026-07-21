@@ -1,31 +1,47 @@
 import '../models.dart';
 
-/// عقد الوصول لبيانات المندوب — تنفيذان: تجريبي (وهمي) وSupabase حقيقي.
-/// الشاشات تتعامل مع هذا العقد فقط، فيمكن التبديل بينهما دون تغيير الواجهة.
+/// هوية المندوب بعد الدخول.
+class DriverIdentity {
+  final String driverId;
+  final String name;
+  final String orgName;
+  const DriverIdentity({required this.driverId, required this.name, required this.orgName});
+}
+
+/// عقد الوصول لبيانات المندوب — نموذج الرمز (session_token). تنفيذان: تجريبي
+/// (وهمي) وSupabase حقيقي. الشاشات تتعامل مع هذا العقد فقط.
 abstract class DriverRepository {
-  /// تسجيل الدخول بإيميل/كلمة مرور (حساب الموظف في الداشبورد). يرمي عند الفشل.
-  Future<void> signIn(String email, String password);
+  bool get isAuthed;
+  String? get driverId;
+  DriverIdentity? get identity;
+
+  /// يتحقّق من رمز المؤسسة ويرسل OTP للجوال. يعيد اسم المؤسسة. يرمي عند الفشل.
+  Future<String> sendOtp(String orgCode, String phone);
+
+  /// يتحقّق من الرمز ويُصدر جلسة المندوب (يخزّن session_token). يعيد الهوية.
+  Future<DriverIdentity> verifyOtp(String orgCode, String phone, String otp, String? name);
+
+  /// يستعيد الجلسة المحفوظة إن وُجدت (عند بدء التطبيق).
+  Future<bool> restoreSession();
   Future<void> signOut();
 
   Future<List<Order>> myOrders();
   Future<DriverStats> todayStats();
   Future<List<HistoryItem>> history();
-  Future<void> confirmPickup(String orderId);
-  Future<void> confirmEnroute(String orderId);
-  Future<void> confirmDelivered(String orderId, String photoUrl);
-  Future<void> markFailed(String orderId, String reason);
+
+  Future<void> confirmPickup(String deliveryId);
+  Future<void> confirmEnroute(String deliveryId);
+
+  /// يرفع صورة التسليم عبر دالة الحافة الآمنة ويعلّم التوصيلة مُسلّمة.
+  Future<void> confirmDelivered(String deliveryId, List<int> photoBytes);
+  Future<void> markFailed(String deliveryId, String reason);
+
   Future<List<ChatMessage>> messages(String orderId);
   Future<void> sendMessage(String orderId, String body);
 
-  /// يرفع صورة التسليم ويعيد رابطها العلني/الموقّع. المسار: `orgId/orderId.jpg`
-  Future<String> uploadProof(String orderId, List<int> bytes);
+  /// يبثّ موقع المندوب الحيّ.
+  Future<void> broadcastLocation(double lat, double lng);
 
-  /// معرّف المندوب الحالي (admin_users.id) — للاشتراك اللحظي المفلتَر.
-  Future<String?> currentDriverId();
-
-  /// يبثّ موقع المندوب لكل طلباته النشطة؛ يعيد عدد الطلبات المتأثّرة.
-  Future<int> broadcastLocation(double lat, double lng);
-
-  /// بثّ لحظي يُصدر حدثًا عند تغيّر أي من طلبات هذا المندوب (Realtime).
+  /// بثّ لحظي عند تغيّر أي من توصيلات هذا المندوب (Realtime).
   Stream<void> myOrdersChanges(String driverId);
 }
