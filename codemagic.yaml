@@ -12,6 +12,66 @@
 # قابل للتثبيت مباشرة للاختبار الداخلي. للنشر على Google Play أضِف keystore لاحقًا.
 
 workflows:
+  # ==========================================================================
+  # بناء iOS ورفعه إلى TestFlight في السحابة (بأحدث Xcode — يتجاوز شرط iOS SDK).
+  #
+  # المتطلبات (تُجهّزها مرّة واحدة في Codemagic + App Store Connect):
+  #   1) مفتاح App Store Connect API (App Store Connect → Users and Access →
+  #      Integrations → App Store Connect API → Generate). احفظ: Issuer ID،
+  #      Key ID، وملف .p8.
+  #   2) في Codemagic → Teams/App settings → Integrations → App Store Connect:
+  #      أضِف المفتاح وسمّه **بالضبط** «Moaatmat ASC Key» (نفس القيمة أدناه).
+  #   3) أنشئ سجل التطبيق في App Store Connect (Apps → + → New App) بنفس الـ
+  #      Bundle ID: com.moaatmat.moaatmatDriver، اسم «Moaatmat Driver»، اللغة العربية.
+  #   4) اختر workflow: ios-testflight ثم Start new build.
+  # التوقيع تلقائي بنوع app_store (لا يحتاج جهازًا مسجّلًا).
+  # ==========================================================================
+  ios-testflight:
+    name: Moaatmat Driver · iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+
+    integrations:
+      app_store_connect: Moaatmat ASC Key   # نفس اسم المفتاح في Codemagic
+
+    environment:
+      ios_signing:
+        distribution_type: app_store          # شهادة/بروفايل توزيع — بلا أجهزة
+        bundle_identifier: com.moaatmat.moaatmatDriver
+      flutter: stable
+      xcode: latest                           # أحدث Xcode (iOS 26 SDK+)
+      cocoapods: default
+
+    scripts:
+      - name: نسخة Flutter
+        script: flutter --version
+      - name: تثبيت حزم Flutter
+        script: flutter pub get
+      - name: تثبيت CocoaPods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: تطبيق ملفّات التوقيع على المشروع
+        script: xcode-project use-profiles
+      - name: بناء IPA (release)
+        script: |
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true            # يظهر في TestFlight للاختبار الداخلي
+      email:
+        recipients:
+          - yzoo0oodg4@gmail.com
+        notify:
+          success: true
+          failure: true
+
   android-apk:
     name: Moaatmat Driver · Android APK
     instance_type: linux_x2

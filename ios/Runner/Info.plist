@@ -79,5 +79,8 @@
 		<string>location</string>
 		<string>fetch</string>
 	</array>
+	<!-- التطبيق يستخدم تشفيرًا قياسيًا (HTTPS) فقط → معفى؛ يتخطّى سؤال Export Compliance في TestFlight. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
