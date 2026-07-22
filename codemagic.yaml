@@ -104,3 +104,59 @@ workflows:
         notify:
           success: true
           failure: true
+
+  # ─────────────────── iOS → TestFlight (تطبيق واحد، معرّف ثابت) ───────────────────
+  ios-driver:
+    name: Moaatmat Driver · iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      app_store_connect: SahtakAscKey        # نفس تكامل ASC على مستوى الفريق
+    environment:
+      groups:
+        - platform_shared                    # يوفّر CERTIFICATE_PRIVATE_KEY (سرّ)
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: تثبيت الحزم
+        script: flutter pub get
+      - name: ضبط Info.plist (موقع دائم + إعفاء التشفير)
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" ios/Runner/Info.plist || \
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" ios/Runner/Info.plist
+          LOC="يستخدم التطبيق موقعك لبثّ موقع التوصيل الحيّ للعميل أثناء التوصيل."
+          /usr/libexec/PlistBuddy -c "Set :NSLocationAlwaysAndWhenInUseUsageDescription $LOC" ios/Runner/Info.plist || \
+          /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string $LOC" ios/Runner/Info.plist
+      - name: تثبيت CocoaPods
+        script: find . -name "Podfile" -execdir pod install \;
+      - name: التوقيع — شهادة توزيع + بروفايل
+        script: |
+          set -e
+          keychain initialize
+          app-store-connect fetch-signing-files "com.moaatmat.moaatmatDriver" \
+            --platform IOS \
+            --type IOS_APP_STORE \
+            --certificate-key=@env:CERTIFICATE_PRIVATE_KEY \
+            --create \
+            --verbose
+          keychain add-certificates
+          xcode-project use-profiles
+          security find-identity -v -p codesigning
+      - name: بناء IPA (release)
+        script: |
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+      email:
+        recipients:
+          - yzoo0oodg4@gmail.com
+        notify:
+          success: true
+          failure: true
