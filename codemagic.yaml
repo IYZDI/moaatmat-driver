@@ -1,110 +1,10 @@
-# إعداد Codemagic لتطبيق «Moaatmat Driver» — بناء APK لأندرويد في السحابة (بلا Android SDK محلي).
-#
-# كيفية التشغيل:
-#   1) في Codemagic: Add application → اربط المستودع الذي يحوي مجلد driver_app.
-#      إن كان driver_app مجلدًا فرعيًا داخل مستودع أكبر، اضبط "Project path" على driver_app
-#      (أو انقل driver_app إلى مستودع مستقل).
-#   2) اختر workflow: android-apk، ثم Start new build.
-#   3) بعد النجاح يصلك ملف APK على بريدك (وأيضًا في صفحة البناء → Artifacts).
-#   4) على جوال أندرويد: فعّل «تثبيت من مصادر غير معروفة» ثم افتح ملف APK لتثبيته.
-#
-# ملاحظة توقيع: قالب Flutter الافتراضي يوقّع بناء release بمفتاح debug، فالـ APK
-# قابل للتثبيت مباشرة للاختبار الداخلي. للنشر على Google Play أضِف keystore لاحقًا.
+# إعداد Codemagic لتطبيق «Moaatmat Driver».
+# خطّان: iOS → TestFlight (ios-driver) و Android APK (android-apk).
+# التوقيع يعيد استخدام تكامل SahtakAscKey ومفتاح CERTIFICATE_PRIVATE_KEY
+# (مجموعة platform_shared) على مستوى فريق Codemagic — نفس إعداد تطبيق العميل.
+# سجلّ التطبيق مطلوب مرّة واحدة في App Store Connect بمعرّف com.moaatmat.moaatmatDriver.
 
 workflows:
-  # ==========================================================================
-  # بناء iOS ورفعه إلى TestFlight في السحابة (بأحدث Xcode — يتجاوز شرط iOS SDK).
-  #
-  # المتطلبات (تُجهّزها مرّة واحدة في Codemagic + App Store Connect):
-  #   1) مفتاح App Store Connect API (App Store Connect → Users and Access →
-  #      Integrations → App Store Connect API → Generate). احفظ: Issuer ID،
-  #      Key ID، وملف .p8.
-  #   2) في Codemagic → Teams/App settings → Integrations → App Store Connect:
-  #      أضِف المفتاح وسمّه **بالضبط** «Moaatmat ASC Key» (نفس القيمة أدناه).
-  #   3) أنشئ سجل التطبيق في App Store Connect (Apps → + → New App) بنفس الـ
-  #      Bundle ID: com.moaatmat.moaatmatDriver، اسم «Moaatmat Driver»، اللغة العربية.
-  #   4) اختر workflow: ios-testflight ثم Start new build.
-  # التوقيع تلقائي بنوع app_store (لا يحتاج جهازًا مسجّلًا).
-  # ==========================================================================
-  ios-testflight:
-    name: Moaatmat Driver · iOS TestFlight
-    instance_type: mac_mini_m2
-    max_build_duration: 90
-
-    integrations:
-      app_store_connect: Moaatmat ASC Key   # نفس اسم المفتاح في Codemagic
-
-    environment:
-      ios_signing:
-        distribution_type: app_store          # شهادة/بروفايل توزيع — بلا أجهزة
-        bundle_identifier: com.moaatmat.moaatmatDriver
-      flutter: stable
-      xcode: latest                           # أحدث Xcode (iOS 26 SDK+)
-      cocoapods: default
-
-    scripts:
-      - name: نسخة Flutter
-        script: flutter --version
-      - name: تثبيت حزم Flutter
-        script: flutter pub get
-      - name: تثبيت CocoaPods
-        script: find . -name "Podfile" -execdir pod install \;
-      - name: تطبيق ملفّات التوقيع على المشروع
-        script: xcode-project use-profiles
-      - name: بناء IPA (release)
-        script: |
-          flutter build ipa --release \
-            --build-number=$PROJECT_BUILD_NUMBER \
-            --export-options-plist=/Users/builder/export_options.plist
-
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-
-    publishing:
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true            # يظهر في TestFlight للاختبار الداخلي
-      email:
-        recipients:
-          - yzoo0oodg4@gmail.com
-        notify:
-          success: true
-          failure: true
-
-  android-apk:
-    name: Moaatmat Driver · Android APK
-    instance_type: linux_x2
-    max_build_duration: 60
-
-    environment:
-      flutter: stable
-
-    scripts:
-      - name: نسخة Flutter
-        script: flutter --version
-
-      - name: تثبيت الحزم
-        script: flutter pub get
-
-      - name: تحليل الكود
-        script: flutter analyze
-
-      - name: بناء APK (release)
-        script: flutter build apk --release
-
-    artifacts:
-      - build/app/outputs/flutter-apk/*.apk
-      - build/app/outputs/**/mapping.txt
-
-    publishing:
-      email:
-        recipients:
-          - yzoo0oodg4@gmail.com
-        notify:
-          success: true
-          failure: true
-
   # ─────────────────── iOS → TestFlight (تطبيق واحد، معرّف ثابت) ───────────────────
   ios-driver:
     name: Moaatmat Driver · iOS → TestFlight
@@ -154,6 +54,29 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+      email:
+        recipients:
+          - yzoo0oodg4@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ─────────────────── Android APK (اختبار داخلي) ───────────────────
+  android-apk:
+    name: Moaatmat Driver · Android APK
+    instance_type: mac_mini_m2                # الخطة المجانية (mac يبني Android أيضًا)
+    max_build_duration: 60
+    environment:
+      flutter: stable
+    scripts:
+      - name: تثبيت الحزم
+        script: flutter pub get
+      - name: بناء APK (release)
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/**/mapping.txt
+    publishing:
       email:
         recipients:
           - yzoo0oodg4@gmail.com
