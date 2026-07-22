@@ -34,10 +34,12 @@ workflows:
         script: |
           set -e
           keychain initialize
+          # المفتاح مُخزّن base64 (سطر واحد) لتجنّب تشوّه أسطر PEM في متغيّرات البيئة
+          printf '%s' "$CERTIFICATE_PRIVATE_KEY_B64" | openssl base64 -d -A > /tmp/cert_key.pem
           app-store-connect fetch-signing-files "com.moaatmat.moaatmatDriver" \
             --platform IOS \
             --type IOS_APP_STORE \
-            --certificate-key=@env:CERTIFICATE_PRIVATE_KEY \
+            --certificate-key=@file:/tmp/cert_key.pem \
             --create \
             --verbose
           keychain add-certificates
