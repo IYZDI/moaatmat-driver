@@ -18,6 +18,8 @@ OrderStatus orderStatusFromDb(String s) {
       return OrderStatus.preparing;
     case 'ready':
       return OrderStatus.ready;
+    case 'picked': // حالة مشتقة من driver_orders (0144): picked_at مسجّل
+      return OrderStatus.picked;
     case 'out_for_delivery':
       return OrderStatus.enroute;
     case 'delivered':

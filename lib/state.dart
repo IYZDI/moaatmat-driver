@@ -309,8 +309,9 @@ class DriverNotifier extends Notifier<DriverData> {
 
   Future<void> confirmPickup(String id) async {
     if (connected) {
+      _setStatusMock(id, OrderStatus.picked); // انعكاس فوري في الواجهة
       await _repo!.confirmPickup(id);
-      await refresh();
+      await refresh(); // مزامنة حقيقة الخادم (0144 يعيد 'picked')
     } else {
       _setStatusMock(id, OrderStatus.picked);
     }
@@ -318,6 +319,7 @@ class DriverNotifier extends Notifier<DriverData> {
 
   Future<void> confirmEnroute(String id) async {
     if (connected) {
+      _setStatusMock(id, OrderStatus.enroute); // انعكاس فوري في الواجهة
       await _repo!.confirmEnroute(id);
       await refresh();
     } else {
