@@ -9,6 +9,10 @@
         android:label="Moaatmat Driver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- مفتاح خرائط Google (نفس مفتاح تطبيق العميل) -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyCzYsVCdvxN-F3RmfC1p-dfFW8SRB1YgH0" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

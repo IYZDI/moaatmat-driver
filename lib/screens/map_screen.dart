@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../l10n.dart';
 import '../models.dart';
@@ -14,7 +13,7 @@ import '../state.dart';
 import '../data/repository.dart';
 import '../data/location_broadcaster.dart';
 
-/// شاشة الملاحة: خريطة حقيقية (OpenStreetMap) تعرض موقع المندوب الحيّ
+/// شاشة الملاحة: خرائط Google تعرض موقع المندوب الحيّ (النقطة الزرقاء)
 /// ودبوس وجهة العميل، مع بثّ الموقع للعميل وزرّ تسليم واضح.
 class MapScreen extends ConsumerStatefulWidget {
   final String orderId;
@@ -27,7 +26,7 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   static const _riyadh = LatLng(24.7136, 46.6753);
 
-  final _map = MapController();
+  GoogleMapController? _map;
   LocationBroadcaster? _broadcaster;
   bool _broadcasting = false;
 
@@ -35,7 +34,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   LatLng? _me;
   bool _follow = true; // الكاميرا تتبع المندوب
   bool _didFit = false; // ضبط الإطار الأولي (المندوب + الوجهة) مرة واحدة
-  bool _mapReady = false;
+  bool _hasLocationPerm = false;
+  bool _programmaticMove = false; // لتمييز تحريكنا للكاميرا عن سحب المستخدم
 
   @override
   void initState() {
@@ -52,7 +52,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _watchMyLocation();
   }
 
-  /// تتبّع موقع الجهاز لعرضه على الخريطة (مستقل عن البثّ للخادم).
+  /// تتبّع موقع الجهاز (للتتبّع بالكاميرا وخطّ المسار — النقطة الزرقاء يرسمها Google).
   Future<void> _watchMyLocation() async {
     if (!await Geolocator.isLocationServiceEnabled()) return;
     var perm = await Geolocator.checkPermission();
@@ -60,6 +60,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       perm = await Geolocator.requestPermission();
     }
     if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+    if (mounted) setState(() => _hasLocationPerm = true);
 
     // نبدأ بآخر موقع معروف فورًا ثم نتابع التدفّق.
     try {
@@ -85,21 +86,38 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return LatLng(o!.lat!, o.lng!);
   }
 
+  /// تحريك مُبرمَج للكاميرا (لا يُطفئ وضع التتبّع).
+  Future<void> _animate(CameraUpdate update) async {
+    final map = _map;
+    if (map == null) return;
+    _programmaticMove = true;
+    try {
+      await map.animateCamera(update);
+    } finally {
+      _programmaticMove = false;
+    }
+  }
+
   void _afterPositionUpdate() {
-    if (!_mapReady || _me == null) return;
+    if (_map == null || _me == null) return;
     final dest = _dest;
     if (!_didFit) {
       _didFit = true;
       if (dest != null) {
         // إطار يجمع المندوب والوجهة معًا
-        _map.fitCamera(CameraFit.coordinates(
-          coordinates: [_me!, dest],
-          padding: const EdgeInsets.fromLTRB(60, 160, 60, 260),
-        ));
+        final sw = LatLng(
+          _me!.latitude < dest.latitude ? _me!.latitude : dest.latitude,
+          _me!.longitude < dest.longitude ? _me!.longitude : dest.longitude,
+        );
+        final ne = LatLng(
+          _me!.latitude > dest.latitude ? _me!.latitude : dest.latitude,
+          _me!.longitude > dest.longitude ? _me!.longitude : dest.longitude,
+        );
+        _animate(CameraUpdate.newLatLngBounds(LatLngBounds(southwest: sw, northeast: ne), 90));
         return;
       }
     }
-    if (_follow) _map.move(_me!, _map.camera.zoom < 13 ? 15 : _map.camera.zoom);
+    if (_follow) _animate(CameraUpdate.newLatLng(_me!));
   }
 
   @override
@@ -136,63 +154,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       backgroundColor: const Color(0xFFE4E7E0),
       body: Stack(
         children: [
-          // ===== الخريطة الحقيقية =====
+          // ===== خرائط Google =====
           Positioned.fill(
-            child: FlutterMap(
-              mapController: _map,
-              options: MapOptions(
-                initialCenter: dest ?? _me ?? _riyadh,
-                initialZoom: 14,
-                onMapReady: () {
-                  _mapReady = true;
-                  _afterPositionUpdate();
-                },
-                // أي سحب يدوي يوقف التتبّع التلقائي
-                onPositionChanged: (camera, hasGesture) {
-                  if (hasGesture && _follow) setState(() => _follow = false);
-                },
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.moaatmat.moaatmatDriver',
-                ),
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(target: dest ?? _me ?? _riyadh, zoom: 14),
+              onMapCreated: (c) {
+                _map = c;
+                _afterPositionUpdate();
+              },
+              // النقطة الزرقاء الحيّة لموقع المندوب (يرسمها Google مباشرة)
+              myLocationEnabled: _hasLocationPerm,
+              myLocationButtonEnabled: false, // لدينا زرّ تمركز خاص
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+              mapToolbarEnabled: false,
+              // أي سحب يدوي يوقف التتبّع التلقائي
+              onCameraMoveStarted: () {
+                if (!_programmaticMove && _follow) setState(() => _follow = false);
+              },
+              markers: {
+                if (dest != null)
+                  Marker(
+                    markerId: const MarkerId('dest'),
+                    position: dest,
+                    infoWindow: InfoWindow(title: name),
+                  ),
+              },
+              polylines: {
                 if (_me != null && dest != null)
-                  PolylineLayer(polylines: [
-                    Polyline(
-                      points: [_me!, dest],
-                      strokeWidth: 4,
-                      color: AppColors.teal.withValues(alpha: 0.55),
-                    ),
-                  ]),
-                MarkerLayer(markers: [
-                  // دبوس الوجهة (رأسه على النقطة)
-                  if (dest != null)
-                    Marker(
-                      point: dest,
-                      width: 44,
-                      height: 44,
-                      alignment: Alignment.topCenter,
-                      child: const Icon(Icons.location_pin, size: 44, color: Color(0xFFC0392B)),
-                    ),
-                  // موقع المندوب الحيّ
-                  if (_me != null)
-                    Marker(
-                      point: _me!,
-                      width: 26,
-                      height: 26,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.teal,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 8)],
-                        ),
-                        child: const Icon(Icons.navigation, size: 13, color: Colors.white),
-                      ),
-                    ),
-                ]),
-              ],
+                  Polyline(
+                    polylineId: const PolylineId('route'),
+                    points: [_me!, dest],
+                    width: 4,
+                    color: AppColors.teal.withValues(alpha: 0.7),
+                    patterns: [PatternItem.dash(24), PatternItem.gap(12)],
+                  ),
+              },
             ),
           ),
 
@@ -272,7 +269,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           customBorder: const CircleBorder(),
                           onTap: () {
                             setState(() => _follow = true);
-                            if (_me != null && _mapReady) _map.move(_me!, 15);
+                            if (_me != null) _animate(CameraUpdate.newLatLngZoom(_me!, 15));
                           },
                           child: Padding(
                             padding: const EdgeInsets.all(10),

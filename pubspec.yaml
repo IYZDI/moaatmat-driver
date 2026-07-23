@@ -58,9 +58,8 @@ dependencies:
   # بثّ موقع المندوب المباشر أثناء التوصيل
   geolocator: ^13.0.1
 
-  # خريطة حقيقية (OpenStreetMap — بلا مفتاح API) لموقع المندوب والوجهة
-  flutter_map: ^8.1.1
-  latlong2: ^0.9.1
+  # خرائط Google لموقع المندوب والوجهة (نفس مفتاح تطبيق العميل)
+  google_maps_flutter: ^2.9.0
 
   # إشعارات محلية (رسائل المحادثة الواردة أثناء عمل التطبيق)
   flutter_local_notifications: ^18.0.1
