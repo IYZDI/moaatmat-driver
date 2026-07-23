@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'state.dart';
@@ -11,9 +12,12 @@ import 'screens/deliver_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/profile_screen.dart';
 
-GoRouter buildRouter(Ref ref) {
+GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
   return GoRouter(
     initialLocation: '/login',
+    // يعيد تقييم redirect عند تغيّر حالة الدخول — وإلا بقي المندوب عالقًا على
+    // شاشة الدخول بعد استعادة الجلسة المحفوظة (يبدو كأنه سُجّل خروجه تلقائيًّا).
+    refreshListenable: refreshListenable,
     redirect: (context, state) {
       final authed = ref.read(driverProvider).authed;
       final loc = state.matchedLocation;
@@ -36,4 +40,9 @@ GoRouter buildRouter(Ref ref) {
   );
 }
 
-final routerProvider = Provider<GoRouter>((ref) => buildRouter(ref));
+final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = ValueNotifier(0);
+  ref.onDispose(refresh.dispose);
+  ref.listen<bool>(driverProvider.select((d) => d.authed), (prev, next) => refresh.value++);
+  return buildRouter(ref, refresh);
+});

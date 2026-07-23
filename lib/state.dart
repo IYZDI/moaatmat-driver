@@ -270,23 +270,34 @@ class DriverNotifier extends Notifier<DriverData> {
   }
 
   /// إعادة تحميل الطلبات والإحصاءات والسجل (الوضع المتّصل فقط).
+  ///
+  /// الجلسة تبقى حتى يسجّل المندوب خروجه بنفسه أو يُعطَّل حسابه من صفحة
+  /// المناديب: خطأ «جلسة غير صالحة» (حساب معطَّل/رمز مُبطَل) → خروج تلقائي؛
+  /// أمّا أخطاء الشبكة العابرة فتُتجاهل وتبقى الجلسة والبيانات كما هي.
   Future<void> refresh() async {
     if (!connected) return;
-    final orders = await _repo!.myOrders();
-    final stats = await _repo!.todayStats();
-    final history = await _repo!.history();
-    state = state.copyWith(
-      orders: orders,
-      history: history,
-      total: stats.total,
-      delivered: stats.delivered,
-      remaining: stats.remaining,
-    );
-    // زامن قنوات المحادثة اللحظية مع الطلبات النشطة (التي لها order_id)
-    _repo!.syncMessageChannels({
-      for (final o in orders)
-        if (o.active && o.orderId != null) o.orderId!,
-    });
+    try {
+      final orders = await _repo!.myOrders();
+      final stats = await _repo!.todayStats();
+      final history = await _repo!.history();
+      state = state.copyWith(
+        orders: orders,
+        history: history,
+        total: stats.total,
+        delivered: stats.delivered,
+        remaining: stats.remaining,
+      );
+      // زامن قنوات المحادثة اللحظية مع الطلبات النشطة (التي لها order_id)
+      _repo!.syncMessageChannels({
+        for (final o in orders)
+          if (o.active && o.orderId != null) o.orderId!,
+      });
+    } catch (e) {
+      if (e.toString().contains('جلسة غير صالحة')) {
+        await logout();
+      }
+      // غير ذلك: خطأ شبكة عابر — المحاولة التالية (الاستطلاع الدوري) تعيد التحميل.
+    }
   }
 
   // ---------- الخطوات ----------
