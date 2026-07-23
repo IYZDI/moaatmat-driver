@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'state.dart';
+import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/pickup_screen.dart';
@@ -14,19 +15,21 @@ import 'screens/profile_screen.dart';
 
 GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     // يعيد تقييم redirect عند تغيّر حالة الدخول — وإلا بقي المندوب عالقًا على
     // شاشة الدخول بعد استعادة الجلسة المحفوظة (يبدو كأنه سُجّل خروجه تلقائيًّا).
     refreshListenable: refreshListenable,
     redirect: (context, state) {
-      final authed = ref.read(driverProvider).authed;
       final loc = state.matchedLocation;
+      if (loc == '/splash') return null; // السبلاش يقرّر وجهته بنفسه بعد ٥ ثوانٍ
+      final authed = ref.read(driverProvider).authed;
       final atGate = loc == '/login';
       if (!authed && !atGate) return '/login';
       if (authed && atGate) return '/home';
       return null;
     },
     routes: [
+      GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
       GoRoute(path: '/login', builder: (c, s) => const LoginScreen()),
       GoRoute(path: '/home', builder: (c, s) => const HomeScreen()),
       GoRoute(path: '/pickup', builder: (c, s) => const PickupScreen()),

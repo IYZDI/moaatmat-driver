@@ -1,4 +1,4 @@
-// اختبار دخان بسيط: يتأكد أن التطبيق يُقلع ويعرض شاشة تسجيل الدخول.
+// اختبار دخان: يُقلع التطبيق على السبلاش ثم ينتقل لشاشة الدخول بعد ٥ ثوانٍ.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,13 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:moaatmat_driver/main.dart';
 
 void main() {
-  testWidgets('يقلع التطبيق ويعرض شاشة الدخول', (WidgetTester tester) async {
+  testWidgets('يقلع على السبلاش ثم يعرض شاشة الدخول', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(const {});
     await tester.pumpWidget(const ProviderScope(child: MoaatmatDriverApp()));
     await tester.pump();
 
+    // السبلاش: الشعار والاسم
     expect(find.text('Moaatmat Driver'), findsWidgets);
-    // عنوان شاشة الدخول (العربية هي اللغة الافتراضية)
+    expect(find.text('تطبيق مندوب التوصيل'), findsOneWidget);
+
+    // بعد ٥ ثوانٍ → شاشة الدخول
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
     expect(find.text('سجّل الدخول لبدء مناوبتك'), findsOneWidget);
   });
 }
