@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../l10n.dart';
+import '../moaatmat_logo.dart';
 import '../state.dart';
 import '../widgets.dart';
 
@@ -140,7 +141,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
           Positioned(
             left: 0,
             right: 0,
-            bottom: 52,
+            bottom: 74,
             child: FadeTransition(
               opacity: _nameFade,
               child: Center(
@@ -150,6 +151,44 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
                     valueColor: AlwaysStoppedAnimation(Colors.white.withValues(alpha: 0.85)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Powered by Moaatmat (بنفس نمط تطبيق العميل)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 26,
+            child: FadeTransition(
+              opacity: _nameFade,
+              child: Center(
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Powered by',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const MoaatmatLogo(size: 16, ring: Colors.white24, dot: Colors.white),
+                      const SizedBox(width: 5),
+                      const Text(
+                        'Moaatmat',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF2DD4BF),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
