@@ -71,7 +71,7 @@ class PickupScreen extends ConsumerWidget {
                 child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(width: 8),
-              Text('#${o.id}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.muted3)),
+              Text('#${shortId(o.id)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.muted3)),
             ],
           ),
           const SizedBox(height: 8),
@@ -108,7 +108,7 @@ class PickupScreen extends ConsumerWidget {
               children: [
                 Text(o.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.muted2)),
                 const SizedBox(height: 3),
-                Text('#${o.id} · ${o.items}', style: const TextStyle(fontSize: 12, color: AppColors.muted3)),
+                Text('#${shortId(o.id)} · ${o.items}', style: const TextStyle(fontSize: 12, color: AppColors.muted3)),
               ],
             ),
           ),

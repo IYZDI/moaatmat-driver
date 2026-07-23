@@ -77,7 +77,7 @@ class HistoryScreen extends ConsumerWidget {
               children: [
                 Text(h.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('#${h.id} · ${h.sub}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                Text('#${shortId(h.id)} · ${h.sub}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
               ],
             ),
           ),

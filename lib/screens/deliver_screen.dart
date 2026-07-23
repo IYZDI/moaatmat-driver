@@ -95,7 +95,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(t.confirmDelivery, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-                            Text('$name · #${widget.orderId}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5)),
+                            Text('$name · #${shortId(widget.orderId)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5)),
                           ],
                         ),
                       ),

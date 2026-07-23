@@ -125,8 +125,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final t = ref.watch(stringsProvider);
     final orderId = widget.orderId;
     final order = ref.watch(driverProvider).orderById(orderId);
-    final name = order?.name ?? t.customer;
+    final name = (order?.name.trim().isNotEmpty ?? false) ? order!.name.trim() : t.customer;
     final address = order?.address ?? '';
+    final distance = order?.distance.trim() ?? '';
+    final eta = order?.eta.trim() ?? '';
+    final prefTime = order?.prefTime.trim() ?? '';
     final dest = (order?.lat != null && order?.lng != null) ? LatLng(order!.lat!, order.lng!) : null;
 
     return Scaffold(
@@ -229,8 +232,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('$name · ${order?.distance ?? ''}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                            Text(order?.eta ?? '', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                            Text(distance.isNotEmpty ? '$name · $distance' : name,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                            if (eta.isNotEmpty)
+                              Text(eta, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
                           ],
                         ),
                       ),
@@ -297,18 +302,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(padding: EdgeInsets.only(top: 2), child: Icon(Icons.location_on_outlined, size: 18, color: AppColors.teal)),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(address, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink))),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
+                  if (address.trim().isNotEmpty) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(padding: EdgeInsets.only(top: 2), child: Icon(Icons.location_on_outlined, size: 18, color: AppColors.teal)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(address, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink))),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                  ],
                   Padding(
                     padding: const EdgeInsetsDirectional.only(start: 26),
-                    child: Text('#$orderId · ${t.preferredDelivery} ${order?.prefTime ?? ''}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                    child: Text(
+                      '#${shortId(orderId)}${prefTime.isNotEmpty ? ' · ${t.preferredDelivery} $prefTime' : ''}',
+                      style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   // مساعدات: محادثة العميل + فتح خرائط جوجل

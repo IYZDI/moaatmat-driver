@@ -110,7 +110,10 @@ class HomeScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text('#${o.id} · ${t.preferredDelivery} ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+            Text(
+              '#${shortId(o.id)}${o.prefTime.trim().isNotEmpty ? ' · ${t.preferredDelivery} ${o.prefTime}' : ''}',
+              style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+            ),
           ],
         ),
       ),

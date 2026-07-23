@@ -5,9 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'l10n.dart';
 import 'theme.dart';
 
-/// سهم الرجوع حسب اتجاه الواجهة (يمين في العربية، يسار في الإنجليزية).
-IconData backChevron(BuildContext context) =>
-    Directionality.of(context) == TextDirection.rtl ? Icons.chevron_right : Icons.chevron_left;
+/// سهم الرجوع: chevron_left من الأيقونات ذاتية الانعكاس (matchTextDirection)
+/// في Flutter — يظهر يسارًا في LTR وينعكس تلقائيًّا يمينًا في RTL.
+/// (chevron_right كان ينعكس في العربية فيبدو مقلوبًا لليسار.)
+IconData backChevron(BuildContext context) => Icons.chevron_left;
+
+/// يختصر معرّفات UUID الطويلة للعرض (#8db9896e بدل السلسلة الكاملة).
+String shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
 /// مساحة علوية آمنة بدل شريط الحالة الوهمي القديم.
 ///

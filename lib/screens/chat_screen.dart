@@ -88,7 +88,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                            Text('${t.orderNo(widget.orderId)} · ${t.onlineNow}', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11.5)),
+                            Text('${t.orderNo(shortId(widget.orderId))} · ${t.onlineNow}', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11.5)),
                           ],
                         ),
                       ),

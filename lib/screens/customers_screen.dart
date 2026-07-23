@@ -97,7 +97,7 @@ class CustomersScreen extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('#${o.id}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+              Text('#${shortId(o.id)}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
               const SizedBox(width: 10),
               Expanded(
                 child: Text('${t.preferredDelivery} ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
@@ -151,7 +151,10 @@ class CustomersScreen extends ConsumerWidget {
           const SizedBox(height: 10),
           _addressRow(o.address),
           const SizedBox(height: 6),
-          Text('#${o.id} · ${t.preferredDelivery} ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+          Text(
+            '#${shortId(o.id)}${o.prefTime.trim().isNotEmpty ? ' · ${t.preferredDelivery} ${o.prefTime}' : ''}',
+            style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+          ),
         ],
       ),
     );
