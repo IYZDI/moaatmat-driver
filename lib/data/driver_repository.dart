@@ -9,6 +9,21 @@ class DriverIdentity {
   const DriverIdentity({required this.driverId, required this.name, required this.phone, required this.orgName});
 }
 
+/// معلومات مطعم المندوب (اسم المطعم + رقم الدعم) — من driver_org_info.
+class OrgInfo {
+  final String name;
+  final String supportPhone;
+  const OrgInfo({required this.name, required this.supportPhone});
+}
+
+/// رسالة محادثة واردة لحظيًّا (بثّ realtime.send من القاعدة — هجرة 0143).
+class IncomingMessage {
+  final String orderId;
+  final String sender; // 'customer' | 'driver'
+  final String body;
+  const IncomingMessage({required this.orderId, required this.sender, required this.body});
+}
+
 /// عقد الوصول لبيانات المندوب — نموذج الرمز (session_token). تنفيذان: تجريبي
 /// (وهمي) وSupabase حقيقي. الشاشات تتعامل مع هذا العقد فقط.
 abstract class DriverRepository {
@@ -45,6 +60,15 @@ abstract class DriverRepository {
 
   /// يبثّ موقع المندوب الحيّ.
   Future<void> broadcastLocation(double lat, double lng);
+
+  /// اسم مطعم المندوب ورقم دعمه (لزرّ «المساعدة والدعم»).
+  Future<OrgInfo?> orgInfo();
+
+  /// يزامن الاشتراك اللحظي بقنوات محادثات الطلبات المُمرّرة (`order-chat:<id>`).
+  void syncMessageChannels(Set<String> orderIds);
+
+  /// رسائل واردة لحظيًّا من قنوات المحادثة المُزامنة.
+  Stream<IncomingMessage> get incomingMessages;
 
   /// بثّ لحظي عند تغيّر أي من توصيلات هذا المندوب (Realtime).
   Stream<void> myOrdersChanges(String driverId);

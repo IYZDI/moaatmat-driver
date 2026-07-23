@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
-
-const _reasons = ['العميل غير متواجد', 'لا يرد على الاتصال', 'عنوان غير صحيح', 'رفض استلام الطلب'];
 
 class DeliverScreen extends ConsumerStatefulWidget {
   final String orderId;
@@ -32,6 +31,8 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
     }
   }
 
+  L get _t => ref.read(stringsProvider);
+
   Future<void> _confirm(String name) async {
     if (_photo == null || _busy) return;
     setState(() => _busy = true);
@@ -39,12 +40,12 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
       final notifier = ref.read(driverProvider.notifier);
       await notifier.confirmDelivered(widget.orderId, _photo!);
       if (!mounted) return;
-      _snack('تم تسليم طلب $name ✅');
+      _snack(_t.deliveredOrder(name));
       context.go('/home');
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        _snack('تعذّر تأكيد التسليم — حاول مجددًا');
+        _snack(_t.confirmFailed);
       }
     }
   }
@@ -55,20 +56,22 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
     try {
       await ref.read(driverProvider.notifier).markFailed(widget.orderId, reason);
       if (!mounted) return;
-      _snack('سُجّل تعذّر التسليم');
+      _snack(_t.failureRecorded);
       context.go('/home');
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        _snack('تعذّر الحفظ — حاول مجددًا');
+        _snack(_t.saveFailed);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = ref.watch(stringsProvider);
+    final reasons = t.failReasons;
     final order = ref.watch(driverProvider).orderById(widget.orderId);
-    final name = order?.name ?? 'العميل';
+    final name = order?.name ?? t.customer;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -84,14 +87,14 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                     children: [
                       InkWell(
                         onTap: () => context.canPop() ? context.pop() : context.go('/home'),
-                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                        child: Icon(backChevron(context), color: Colors.white, size: 24),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('تأكيد التسليم', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                            Text(t.confirmDelivery, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                             Text('$name · #${widget.orderId}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.5)),
                           ],
                         ),
@@ -108,11 +111,11 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
               padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
               children: [
                 Row(
-                  children: const [
-                    Text('صورة التسليم ', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                    Text('*', style: TextStyle(fontSize: 15, color: AppColors.danger)),
-                    SizedBox(width: 6),
-                    Text('(إلزامية)', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                  children: [
+                    Text(t.deliveryPhoto, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                    const Text('*', style: TextStyle(fontSize: 15, color: AppColors.danger)),
+                    const SizedBox(width: 6),
+                    Text(t.required, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -125,10 +128,10 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
                     decoration: BoxDecoration(color: AppColors.dangerBg, border: Border.all(color: AppColors.dangerBorder), borderRadius: BorderRadius.circular(14)),
                     child: Row(
-                      children: const [
-                        Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.danger),
-                        SizedBox(width: 10),
-                        Text('تعذّر التسليم؟ اختر السبب', style: TextStyle(fontSize: 13, color: Color(0xFFA13A2F), fontWeight: FontWeight.w600)),
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.danger),
+                        const SizedBox(width: 10),
+                        Text(t.cantDeliver, style: const TextStyle(fontSize: 13, color: Color(0xFFA13A2F), fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -139,14 +142,14 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
                     decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.dangerBorder), borderRadius: BorderRadius.circular(18)),
                     child: Column(
                       children: [
-                        for (var i = 0; i < _reasons.length; i++)
+                        for (var i = 0; i < reasons.length; i++)
                           InkWell(
-                            onTap: () => _fail(_reasons[i]),
+                            onTap: () => _fail(reasons[i]),
                             child: Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                              decoration: BoxDecoration(border: i < _reasons.length - 1 ? const Border(bottom: BorderSide(color: AppColors.border2)) : null),
-                              child: Text(_reasons[i], style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: Color(0xFFA13A2F))),
+                              decoration: BoxDecoration(border: i < reasons.length - 1 ? const Border(bottom: BorderSide(color: AppColors.border2)) : null),
+                              child: Text(reasons[i], style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: Color(0xFFA13A2F))),
                             ),
                           ),
                       ],
@@ -160,10 +163,10 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
             padding: const EdgeInsets.fromLTRB(22, 14, 22, 26),
             child: Column(
               children: [
-                PrimaryButton(label: _busy ? 'جارٍ الحفظ…' : 'تأكيد التسليم', fontSize: 15.5, onTap: (_photo != null && !_busy) ? () => _confirm(name) : null),
+                PrimaryButton(label: _busy ? t.saving : t.confirmDelivery, fontSize: 15.5, onTap: (_photo != null && !_busy) ? () => _confirm(name) : null),
                 if (_photo == null) ...[
                   const SizedBox(height: 8),
-                  const Text('يتم التفعيل بعد إضافة صورة التسليم', style: TextStyle(fontSize: 11.5, color: AppColors.muted3)),
+                  Text(t.enabledAfterPhoto, style: const TextStyle(fontSize: 11.5, color: AppColors.muted3)),
                 ],
               ],
             ),
@@ -174,6 +177,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
   }
 
   Widget _dropzone() {
+    final t = ref.watch(stringsProvider);
     if (_photo != null) {
       return Container(
         decoration: BoxDecoration(color: AppColors.tealTint2, border: Border.all(color: AppColors.teal, width: 2), borderRadius: BorderRadius.circular(18)),
@@ -181,7 +185,7 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
         child: Column(
           children: [
             Image.memory(_photo!, height: 160, width: double.infinity, fit: BoxFit.cover),
-            TextButton(onPressed: _capture, child: const Text('إعادة الالتقاط', style: TextStyle(color: AppColors.muted))),
+            TextButton(onPressed: _capture, child: Text(t.retake, style: const TextStyle(color: AppColors.muted))),
           ],
         ),
       );
@@ -201,9 +205,9 @@ class _DeliverScreenState extends ConsumerState<DeliverScreen> {
               child: const Icon(Icons.photo_camera_outlined, color: AppColors.teal, size: 26),
             ),
             const SizedBox(height: 12),
-            const Text('اضغط لالتقاط صورة', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            Text(t.tapToCapture, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             const SizedBox(height: 3),
-            const Text('صورة الطلب عند باب العميل', style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
+            Text(t.photoAtDoor, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
           ],
         ),
       ),

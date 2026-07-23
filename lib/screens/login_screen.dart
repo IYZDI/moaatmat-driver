@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -34,9 +35,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ..showSnackBar(SnackBar(content: Text(m), behavior: SnackBarBehavior.floating));
   }
 
+  L get _t => ref.read(stringsProvider);
+
   Future<void> _send() async {
     if (_org.text.trim().isEmpty || _phone.text.trim().isEmpty) {
-      _snack('أدخل رمز المؤسسة ورقم الجوال');
+      _snack(_t.enterOrgAndPhone);
       return;
     }
     setState(() => _busy = true);
@@ -52,7 +55,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _verify() async {
     if (_otp.text.trim().length < 4) {
-      _snack('أدخل رمز التحقّق');
+      _snack(_t.enterOtp);
       return;
     }
     setState(() => _busy = true);
@@ -81,26 +84,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         var saving = false;
         return StatefulBuilder(
           builder: (dctx, setD) => AlertDialog(
-            title: const Text('أهلاً بك 👋'),
+            title: Text(_t.welcome),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('ما اسمك؟ سيظهر لفريق المطعم في الداشبورد.',
-                    style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                Text(_t.askName, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
                 const SizedBox(height: 12),
                 TextField(
                   controller: ctrl,
                   autofocus: true,
                   textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(hintText: 'اسمك الكامل', border: OutlineInputBorder()),
+                  decoration: InputDecoration(hintText: _t.fullName, border: const OutlineInputBorder()),
                 ),
               ],
             ),
             actions: [
               TextButton(
                 onPressed: saving ? null : () => Navigator.of(dctx).pop(),
-                child: const Text('لاحقًا', style: TextStyle(color: AppColors.muted)),
+                child: Text(_t.later, style: const TextStyle(color: AppColors.muted)),
               ),
               TextButton(
                 onPressed: saving
@@ -110,9 +112,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         setD(() => saving = true);
                         final ok = await ref.read(driverProvider.notifier).setDriverName(ctrl.text);
                         if (dctx.mounted) Navigator.of(dctx).pop();
-                        if (!ok && mounted) _snack('حُفظ الاسم محليًّا (تعذّر إرساله للخادم)');
+                        if (!ok && mounted) _snack(_t.nameSavedLocally);
                       },
-                child: const Text('حفظ', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.teal)),
+                child: Text(_t.save, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.teal)),
               ),
             ],
           ),
@@ -126,6 +128,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = ref.watch(stringsProvider);
     return Scaffold(
       backgroundColor: AppColors.teal,
       body: Column(
@@ -152,7 +155,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 24),
                   const Text('Moaatmat Driver', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
-                  Text(_otpStep ? 'أدخل رمز التحقّق المُرسَل إليك' : 'سجّل الدخول لبدء مناوبتك',
+                  Text(_otpStep ? t.loginOtpSubtitle : t.loginSubtitle,
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
                 ],
               ),
@@ -171,13 +174,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget _enterForm() => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _field('رمز المؤسسة', Icons.qr_code_2, _org, 'A1B2C3', ltr: true, caps: true),
+          _field(_t.orgCode, Icons.qr_code_2, _org, 'A1B2C3', ltr: true, caps: true),
           const SizedBox(height: 14),
-          _field('رقم الجوال', Icons.phone_outlined, _phone, '05xxxxxxxx', ltr: true, keyboard: TextInputType.phone),
+          _field(_t.phoneNumber, Icons.phone_outlined, _phone, '05xxxxxxxx', ltr: true, keyboard: TextInputType.phone),
           const SizedBox(height: 18),
-          PrimaryButton(label: _busy ? 'جارٍ الإرسال…' : 'إرسال رمز التحقّق', onTap: _busy ? null : _send),
+          PrimaryButton(label: _busy ? _t.sending : _t.sendOtp, onTap: _busy ? null : _send),
           const SizedBox(height: 12),
-          const Center(child: Text('يصلك الرمز برسالة نصّية', style: TextStyle(fontSize: 13, color: AppColors.muted))),
+          Center(child: Text(_t.otpBySms, style: const TextStyle(fontSize: 13, color: AppColors.muted))),
         ],
       );
 
@@ -187,17 +190,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           Center(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: Text('أُرسل إلى ${_phone.text}${_orgName.isNotEmpty ? ' · $_orgName' : ''}',
+              child: Text(_t.sentTo('${_phone.text}${_orgName.isNotEmpty ? ' · $_orgName' : ''}'),
                   style: const TextStyle(fontSize: 13, color: AppColors.muted)),
             ),
           ),
-          _field('رمز التحقّق', Icons.lock_outline, _otp, '••••', ltr: true, keyboard: TextInputType.number, big: true),
+          _field(_t.otp, Icons.lock_outline, _otp, '••••', ltr: true, keyboard: TextInputType.number, big: true),
           const SizedBox(height: 18),
-          PrimaryButton(label: _busy ? 'جارٍ التحقّق…' : 'دخول', onTap: _busy ? null : _verify),
+          PrimaryButton(label: _busy ? _t.verifying : _t.signIn, onTap: _busy ? null : _verify),
           const SizedBox(height: 8),
           TextButton(
             onPressed: _busy ? null : () => setState(() { _otpStep = false; _otp.clear(); }),
-            child: const Text('تغيير الرقم', style: TextStyle(color: AppColors.muted)),
+            child: Text(_t.changeNumber, style: const TextStyle(color: AppColors.muted)),
           ),
         ],
       );

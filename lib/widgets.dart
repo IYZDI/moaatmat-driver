@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'l10n.dart';
 import 'theme.dart';
+
+/// سهم الرجوع حسب اتجاه الواجهة (يمين في العربية، يسار في الإنجليزية).
+IconData backChevron(BuildContext context) =>
+    Directionality.of(context) == TextDirection.rtl ? Icons.chevron_right : Icons.chevron_left;
 
 /// مساحة علوية آمنة بدل شريط الحالة الوهمي القديم.
 ///
@@ -32,13 +38,14 @@ class StatusBar extends StatelessWidget {
 }
 
 /// مؤشّر الخطوات الثلاث: استلام ← توجّه ← تسليم. [current] = 1|2|3
-class StepperBar extends StatelessWidget {
+class StepperBar extends ConsumerWidget {
   final int current;
   const StepperBar({super.key, required this.current});
 
   @override
-  Widget build(BuildContext context) {
-    const labels = ['الاستلام', 'التوجّه', 'التسليم'];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
+    final labels = [t.stepPickup, t.stepEnroute, t.stepDeliver];
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
       child: Row(
@@ -86,21 +93,21 @@ class _NavItem {
   const _NavItem(this.route, this.label, this.icon);
 }
 
-const _navItems = [
-  _NavItem('/home', 'الرئيسية', Icons.home_outlined),
-  _NavItem('/pickup', 'الاستلام', Icons.inventory_2_outlined),
-  _NavItem('/customers', 'العملاء', Icons.people_outline),
-  _NavItem('/history', 'السجل', Icons.access_time),
-  _NavItem('/profile', 'حسابي', Icons.person_outline),
-];
-
 /// شريط التنقّل السفلي (يظهر في الرئيسية/السجل/حسابي).
-class BottomNav extends StatelessWidget {
+class BottomNav extends ConsumerWidget {
   final String current;
   const BottomNav({super.key, required this.current});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
+    final items = [
+      _NavItem('/home', t.navHome, Icons.home_outlined),
+      _NavItem('/pickup', t.navPickup, Icons.inventory_2_outlined),
+      _NavItem('/customers', t.navCustomers, Icons.people_outline),
+      _NavItem('/history', t.navHistory, Icons.access_time),
+      _NavItem('/profile', t.navProfile, Icons.person_outline),
+    ];
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -110,7 +117,7 @@ class BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          for (final it in _navItems)
+          for (final it in items)
             _item(context, it, active: it.route == current),
         ],
       ),

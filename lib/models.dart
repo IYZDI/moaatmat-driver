@@ -66,6 +66,10 @@ class Order {
   final String distance;
   final String eta;
 
+  /// إحداثيات وجهة التسليم (من driver_orders — قد تكون فارغة لعناوين بلا موقع).
+  final double? lat;
+  final double? lng;
+
   const Order({
     required this.id,
     this.orderId,
@@ -77,6 +81,8 @@ class Order {
     required this.status,
     this.distance = '',
     this.eta = '',
+    this.lat,
+    this.lng,
   });
 
   Order copyWith({OrderStatus? status}) => Order(
@@ -90,6 +96,8 @@ class Order {
         status: status ?? this.status,
         distance: distance,
         eta: eta,
+        lat: lat,
+        lng: lng,
       );
 
   bool get active =>

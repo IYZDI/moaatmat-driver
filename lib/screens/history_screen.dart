@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -10,6 +11,7 @@ class HistoryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
     final data = ref.watch(driverProvider);
     return Scaffold(
       backgroundColor: Colors.white,
@@ -20,17 +22,17 @@ class HistoryScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const StatusBar(dark: true),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(24, 12, 24, 0),
-                  child: Text('سجل الطلبات المكتملة', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                  child: Text(t.completedOrders, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
                   child: Row(
                     children: [
-                      _stat('${data.delivered}', 'اليوم'),
+                      _stat('${data.delivered}', t.today),
                       const SizedBox(width: 10),
-                      _stat('142', 'هذا الشهر'),
+                      _stat('142', t.thisMonth),
                     ],
                   ),
                 ),
@@ -41,10 +43,10 @@ class HistoryScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
               children: [
-                const Text('اليوم · الثلاثاء 18 يوليو', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
+                Text(t.today, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
                 const SizedBox(height: 10),
                 for (final h in data.history) ...[
-                  _item(h),
+                  _item(t, h),
                   const SizedBox(height: 10),
                 ],
               ],
@@ -56,7 +58,7 @@ class HistoryScreen extends ConsumerWidget {
     );
   }
 
-  Widget _item(HistoryItem h) {
+  Widget _item(L t, HistoryItem h) {
     return AppCard(
       radius: 16,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -79,7 +81,7 @@ class HistoryScreen extends ConsumerWidget {
               ],
             ),
           ),
-          Text(h.ok ? 'تم التسليم' : 'تعذّر', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: h.ok ? AppColors.teal : AppColors.danger)),
+          Text(h.ok ? t.deliveredLabel : t.failedLabel, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: h.ok ? AppColors.teal : AppColors.danger)),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -11,8 +12,9 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
     final data = ref.watch(driverProvider);
-    final name = data.name.trim().isNotEmpty ? data.name.trim() : 'مندوب';
+    final name = data.name.trim().isNotEmpty ? data.name.trim() : t.driverFallback;
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -29,10 +31,13 @@ class HomeScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('مساءً 👋', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
+                            Text(t.greeting, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
                             Text(name, style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w700)),
                             const SizedBox(height: 3),
-                            Text(kDriver.place, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12.5)),
+                            Text(
+                              '${t.deliveryStaff}${data.orgName.trim().isNotEmpty ? ' · ${data.orgName.trim()}' : ''}',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12.5),
+                            ),
                           ],
                         ),
                       ),
@@ -44,11 +49,11 @@ class HomeScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(24, 18, 24, 26),
                   child: Row(
                     children: [
-                      _stat('${data.total}', 'طلبات اليوم'),
+                      _stat('${data.total}', t.todaysOrders),
                       const SizedBox(width: 10),
-                      _stat('${data.delivered}', 'تم التسليم'),
+                      _stat('${data.delivered}', t.deliveredStat),
                       const SizedBox(width: 10),
-                      _stat('${data.remaining}', 'متبقٍ', solid: true),
+                      _stat('${data.remaining}', t.remainingStat, solid: true),
                     ],
                   ),
                 ),
@@ -62,21 +67,21 @@ class HomeScreen extends ConsumerWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('طلبات نشطة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(t.activeOrders, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                     InkWell(
                       onTap: () => context.go('/customers'),
-                      child: const Text('عرض الكل', style: TextStyle(fontSize: 13, color: AppColors.teal, fontWeight: FontWeight.w600)),
+                      child: Text(t.viewAll, style: const TextStyle(fontSize: 13, color: AppColors.teal, fontWeight: FontWeight.w600)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
                 if (data.orders.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: Center(child: Text('لا طلبات نشطة حالياً 🎉', style: TextStyle(color: AppColors.muted))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text(t.noActiveOrders, style: const TextStyle(color: AppColors.muted))),
                   ),
                 for (final o in data.orders) ...[
-                  _orderCard(context, o),
+                  _orderCard(context, t, o),
                   const SizedBox(height: 12),
                 ],
               ],
@@ -88,7 +93,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _orderCard(BuildContext context, Order o) {
+  Widget _orderCard(BuildContext context, L t, Order o) {
     final meta = statusMeta(o.status);
     return InkWell(
       onTap: () => context.go('/customers'),
@@ -101,11 +106,11 @@ class HomeScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(o.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                StatusBadge(label: meta.label, fg: meta.fg, bg: meta.bg),
+                StatusBadge(label: t.statusLabel(o.status), fg: meta.fg, bg: meta.bg),
               ],
             ),
             const SizedBox(height: 8),
-            Text('#${o.id} · التوصيل المفضّل ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+            Text('#${o.id} · ${t.preferredDelivery} ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
           ],
         ),
       ),

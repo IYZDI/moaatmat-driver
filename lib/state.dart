@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'l10n.dart';
 import 'models.dart';
 import 'data/repository.dart';
 import 'data/driver_repository.dart';
+import 'data/notifications_service.dart';
 
 /// معلومات المندوب (ثابتة في الوضع التجريبي — تُجلب لاحقاً من الحساب الحقيقي).
 class Driver {
@@ -43,6 +45,7 @@ class DriverData {
   final bool authed;
   final String name;
   final String phone;
+  final String orgName;
   final List<Order> orders;
   final List<HistoryItem> history;
   final Map<String, List<ChatMessage>> messages;
@@ -54,6 +57,7 @@ class DriverData {
     required this.authed,
     required this.name,
     required this.phone,
+    this.orgName = '',
     required this.orders,
     required this.history,
     required this.messages,
@@ -73,6 +77,7 @@ class DriverData {
     bool? authed,
     String? name,
     String? phone,
+    String? orgName,
     List<Order>? orders,
     List<HistoryItem>? history,
     Map<String, List<ChatMessage>>? messages,
@@ -84,6 +89,7 @@ class DriverData {
         authed: authed ?? this.authed,
         name: name ?? this.name,
         phone: phone ?? this.phone,
+        orgName: orgName ?? this.orgName,
         orders: orders ?? this.orders,
         history: history ?? this.history,
         messages: messages ?? this.messages,
@@ -137,10 +143,18 @@ class DriverNotifier extends Notifier<DriverData> {
   bool get connected => _repo != null;
 
   StreamSubscription<void>? _ordersSub;
+  StreamSubscription<IncomingMessage>? _msgSub;
+
+  /// معرّف التوصيلة التي محادثتها مفتوحة الآن (لا نُشعر المندوب وهو داخلها).
+  String? _openChatId;
+  void setOpenChat(String? deliveryId) => _openChatId = deliveryId;
 
   @override
   DriverData build() {
-    ref.onDispose(() => _ordersSub?.cancel());
+    ref.onDispose(() {
+      _ordersSub?.cancel();
+      _msgSub?.cancel();
+    });
     if (connected) {
       _restore(); // استعادة الجلسة المحفوظة (غير متزامنة)
       return _connectedInitial();
@@ -156,11 +170,21 @@ class DriverNotifier extends Notifier<DriverData> {
     }
   }
 
-  /// يُدخل اسم المندوب وجواله الحقيقيَّين (من الداشبورد) في الحالة.
+  /// يُدخل اسم المندوب وجواله واسم مطعمه الحقيقيّة (من الداشبورد) في الحالة.
   DriverData _applyIdentity(DriverData d) {
     final id = _repo?.identity;
     if (id == null) return d;
-    return d.copyWith(name: id.name, phone: id.phone);
+    return d.copyWith(name: id.name, phone: id.phone, orgName: id.orgName);
+  }
+
+  /// اسم المطعم ورقم دعمه (لزرّ «المساعدة والدعم»).
+  Future<OrgInfo?> orgInfo() async {
+    if (!connected) return const OrgInfo(name: 'مطعم مؤتمات (تجريبي)', supportPhone: '0500000000');
+    try {
+      return await _repo!.orgInfo();
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------- المصادقة (OTP: رمز مؤسسة + جوال) ----------
@@ -218,6 +242,31 @@ class DriverNotifier extends Notifier<DriverData> {
     if (id == null || id.isEmpty) return;
     await _ordersSub?.cancel();
     _ordersSub = _repo!.myOrdersChanges(id).listen((_) => refresh());
+
+    // رسائل المحادثة الواردة لحظيًّا → إشعار نظام + تحديث المحادثة المفتوحة.
+    await _msgSub?.cancel();
+    _msgSub = _repo!.incomingMessages.listen(_onIncomingMessage);
+    await NotificationsService.instance.init();
+  }
+
+  void _onIncomingMessage(IncomingMessage msg) {
+    if (msg.sender != 'customer') return; // رسائل المندوب نفسه لا تُشعِر
+    // نجد التوصيلة صاحبة هذا الطلب
+    Order? order;
+    for (final o in state.orders) {
+      if (o.orderId == msg.orderId) {
+        order = o;
+        break;
+      }
+    }
+    if (order == null) return;
+    // حدّث رسائل المحادثة (سواء كانت مفتوحة أو لا — لتكون جاهزة عند الفتح)
+    loadMessages(order.id);
+    // أشعر المندوب فقط إن لم تكن محادثة هذا الطلب مفتوحة أمامه الآن
+    if (_openChatId != order.id) {
+      final t = ref.read(stringsProvider);
+      NotificationsService.instance.showMessage(title: t.messageFrom(order.name), body: msg.body);
+    }
   }
 
   /// إعادة تحميل الطلبات والإحصاءات والسجل (الوضع المتّصل فقط).
@@ -233,6 +282,11 @@ class DriverNotifier extends Notifier<DriverData> {
       delivered: stats.delivered,
       remaining: stats.remaining,
     );
+    // زامن قنوات المحادثة اللحظية مع الطلبات النشطة (التي لها order_id)
+    _repo!.syncMessageChannels({
+      for (final o in orders)
+        if (o.active && o.orderId != null) o.orderId!,
+    });
   }
 
   // ---------- الخطوات ----------

@@ -158,6 +158,8 @@ class SupabaseDriverRepository implements DriverRepository {
         prefTime: eta,
         eta: eta,
         status: orderStatusFromDb((m['status'] ?? 'preparing') as String),
+        lat: (m['lat'] as num?)?.toDouble(),
+        lng: (m['lng'] as num?)?.toDouble(),
       );
     }).toList();
   }
@@ -247,6 +249,50 @@ class SupabaseDriverRepository implements DriverRepository {
   @override
   Future<void> broadcastLocation(double lat, double lng) async {
     await _db.rpc('driver_ping_location', params: {'p_token': _token, 'p_lat': lat, 'p_lng': lng});
+  }
+
+  @override
+  Future<OrgInfo?> orgInfo() async {
+    final rows = await _db.rpc('driver_org_info', params: {'p_token': _token}) as List<dynamic>;
+    if (rows.isEmpty) return null;
+    final m = rows.first as Map<String, dynamic>;
+    return OrgInfo(
+      name: (m['org_name'] ?? '') as String? ?? '',
+      supportPhone: (m['support_phone'] ?? '') as String? ?? '',
+    );
+  }
+
+  // ---------- الرسائل اللحظية (بثّ realtime.send من القاعدة — هجرة 0143) ----------
+  final _msgCtrl = StreamController<IncomingMessage>.broadcast();
+  final Map<String, RealtimeChannel> _msgChannels = {};
+
+  @override
+  Stream<IncomingMessage> get incomingMessages => _msgCtrl.stream;
+
+  @override
+  void syncMessageChannels(Set<String> orderIds) {
+    // إلغاء قنوات الطلبات المنتهية
+    for (final id in _msgChannels.keys.toList()) {
+      if (!orderIds.contains(id)) {
+        _db.removeChannel(_msgChannels.remove(id)!);
+      }
+    }
+    // الاشتراك بقنوات الطلبات الجديدة
+    for (final id in orderIds) {
+      if (_msgChannels.containsKey(id)) continue;
+      final ch = _db.channel('order-chat:$id');
+      ch.onBroadcast(
+        event: 'new-message',
+        callback: (payload) {
+          _msgCtrl.add(IncomingMessage(
+            orderId: (payload['order_id'] ?? id).toString(),
+            sender: (payload['sender'] ?? '') as String? ?? '',
+            body: (payload['body'] ?? '') as String? ?? '',
+          ));
+        },
+      ).subscribe();
+      _msgChannels[id] = ch;
+    }
   }
 
   @override

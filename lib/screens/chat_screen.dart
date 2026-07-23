@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -22,12 +23,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     // في الوضع المتّصل نجلب رسائل المحادثة من الخادم (لا يفعل شيئًا في التجريبي).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(driverProvider.notifier).loadMessages(widget.orderId);
+      final n = ref.read(driverProvider.notifier);
+      n.loadMessages(widget.orderId);
+      // المحادثة مفتوحة → الرسائل الواردة تحدّثها مباشرة بلا إشعار نظام
+      n.setOpenChat(widget.orderId);
     });
   }
 
   @override
   void dispose() {
+    ref.read(driverProvider.notifier).setOpenChat(null);
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -45,11 +50,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = ref.watch(stringsProvider);
     final data = ref.watch(driverProvider);
     final order = data.orderById(widget.orderId);
     final messages = data.messages[widget.orderId] ?? const [];
-    final name = order?.name ?? 'العميل';
-    final initial = order?.initial ?? 'ع';
+    final name = order?.name ?? t.customer;
+    final initial = order?.initial ?? (t.ar ? 'ع' : 'C');
 
     return Scaffold(
       backgroundColor: const Color(0xFFEEF1EE),
@@ -66,7 +72,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     children: [
                       InkWell(
                         onTap: () => context.canPop() ? context.pop() : context.go('/customers'),
-                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                        child: Icon(backChevron(context), color: Colors.white, size: 24),
                       ),
                       const SizedBox(width: 12),
                       Container(
@@ -82,12 +88,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                            Text('طلب #${widget.orderId} · متصلة الآن', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11.5)),
+                            Text('${t.orderNo(widget.orderId)} · ${t.onlineNow}', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11.5)),
                           ],
                         ),
                       ),
                       InkWell(
-                        onTap: () => _snack('جارٍ الاتصال بـ $name'),
+                        onTap: () => _snack(t.calling(name)),
                         borderRadius: BorderRadius.circular(11),
                         child: Container(
                           width: 38,
@@ -112,7 +118,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                     decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(20)),
-                    child: const Text('اليوم 8:14 م', style: TextStyle(fontSize: 11, color: Color(0xFF8A8781))),
+                    child: Text(t.today, style: const TextStyle(fontSize: 11, color: Color(0xFF8A8781))),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -164,6 +170,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _inputBar() {
+    final t = ref.watch(stringsProvider);
     return Container(
       color: const Color(0xFFEEF1EE),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 26),
@@ -183,12 +190,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: TextField(
                       controller: _controller,
                       onSubmitted: (_) => _send(),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         isCollapsed: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 11),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 11),
                         border: InputBorder.none,
-                        hintText: 'اكتب رسالة…',
-                        hintStyle: TextStyle(color: AppColors.muted3, fontSize: 14),
+                        hintText: t.typeMessage,
+                        hintStyle: const TextStyle(color: AppColors.muted3, fontSize: 14),
                       ),
                       style: const TextStyle(fontSize: 14),
                     ),

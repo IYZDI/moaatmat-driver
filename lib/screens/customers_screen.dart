@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -11,6 +12,7 @@ class CustomersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
     final orders = ref.watch(driverProvider).orders;
     return Scaffold(
       backgroundColor: Colors.white,
@@ -26,10 +28,10 @@ class CustomersScreen extends ConsumerWidget {
                     children: [
                       InkWell(
                         onTap: () => context.go('/home'),
-                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                        child: Icon(backChevron(context), color: Colors.white, size: 24),
                       ),
                       const SizedBox(width: 12),
-                      const Text('عملاء التوصيل', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                      Text(t.deliveryCustomers, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -42,12 +44,12 @@ class CustomersScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
               children: [
                 if (orders.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: Center(child: Text('أنهيت جميع التوصيلات 👏', style: TextStyle(color: AppColors.muted))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text(t.allDeliveriesDone, style: const TextStyle(color: AppColors.muted))),
                   ),
                 for (var i = 0; i < orders.length; i++) ...[
-                  i == 0 ? _nextCard(context, ref, orders[i]) : _waitingCard(orders[i]),
+                  i == 0 ? _nextCard(context, ref, t, orders[i]) : _waitingCard(t, orders[i]),
                   const SizedBox(height: 14),
                 ],
               ],
@@ -72,7 +74,7 @@ class CustomersScreen extends ConsumerWidget {
     );
   }
 
-  Widget _nextCard(BuildContext context, WidgetRef ref, Order o) {
+  Widget _nextCard(BuildContext context, WidgetRef ref, L t, Order o) {
     return AppCard(
       radius: 20,
       padding: const EdgeInsets.all(18),
@@ -86,7 +88,7 @@ class CustomersScreen extends ConsumerWidget {
                 child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(width: 8),
-              const StatusBadge(label: 'التالي', fg: AppColors.teal, bg: AppColors.tealTint),
+              StatusBadge(label: t.next, fg: AppColors.teal, bg: AppColors.tealTint),
             ],
           ),
           const SizedBox(height: 10),
@@ -98,14 +100,14 @@ class CustomersScreen extends ConsumerWidget {
               Text('#${o.id}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
               const SizedBox(width: 10),
               Expanded(
-                child: Text('التوصيل المفضّل ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                child: Text('${t.preferredDelivery} ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
               ),
             ],
           ),
           const SizedBox(height: 14),
           Row(
             children: [
-              SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _snack(context, 'جارٍ الاتصال بـ ${o.name}')),
+              SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _snack(context, t.calling(o.name))),
               const SizedBox(width: 9),
               SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.go('/map/${o.id}')),
               const SizedBox(width: 9),
@@ -113,7 +115,7 @@ class CustomersScreen extends ConsumerWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: PrimaryButton(
-                  label: 'تأكيد التوجّه',
+                  label: t.confirmEnroute,
                   fontSize: 14.5,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   radius: 12,
@@ -130,7 +132,7 @@ class CustomersScreen extends ConsumerWidget {
     );
   }
 
-  Widget _waitingCard(Order o) {
+  Widget _waitingCard(L t, Order o) {
     return AppCard(
       radius: 20,
       padding: const EdgeInsets.all(18),
@@ -143,13 +145,13 @@ class CustomersScreen extends ConsumerWidget {
                 child: Text(o.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(width: 8),
-              const StatusBadge(label: 'بالانتظار', fg: AppColors.muted, bg: AppColors.border2),
+              StatusBadge(label: t.waiting, fg: AppColors.muted, bg: AppColors.border2),
             ],
           ),
           const SizedBox(height: 10),
           _addressRow(o.address),
           const SizedBox(height: 6),
-          Text('#${o.id} · التوصيل المفضّل ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+          Text('#${o.id} · ${t.preferredDelivery} ${o.prefTime}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
         ],
       ),
     );

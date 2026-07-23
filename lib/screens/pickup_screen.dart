@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -11,6 +12,7 @@ class PickupScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
     final orders = ref.watch(driverProvider).orders;
     return Scaffold(
       backgroundColor: Colors.white,
@@ -26,10 +28,10 @@ class PickupScreen extends ConsumerWidget {
                     children: [
                       InkWell(
                         onTap: () => context.go('/home'),
-                        child: const Icon(Icons.chevron_right, color: Colors.white, size: 24),
+                        child: Icon(backChevron(context), color: Colors.white, size: 24),
                       ),
                       const SizedBox(width: 12),
-                      const Text('استلام من المطبخ', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                      Text(t.kitchenPickup, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -42,12 +44,12 @@ class PickupScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
               children: [
                 if (orders.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: Center(child: Text('لا طلبات بانتظار الاستلام', style: TextStyle(color: AppColors.muted))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text(t.noOrdersToPick, style: const TextStyle(color: AppColors.muted))),
                   ),
                 for (final o in orders) ...[
-                  o.picked ? _doneCard(o) : _confirmCard(context, ref, o),
+                  o.picked ? _doneCard(t, o) : _confirmCard(context, ref, t, o),
                   const SizedBox(height: 12),
                 ],
               ],
@@ -58,7 +60,7 @@ class PickupScreen extends ConsumerWidget {
     );
   }
 
-  Widget _confirmCard(BuildContext context, WidgetRef ref, Order o) {
+  Widget _confirmCard(BuildContext context, WidgetRef ref, L t, Order o) {
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,7 +78,7 @@ class PickupScreen extends ConsumerWidget {
           Text(o.items, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
           const SizedBox(height: 14),
           PrimaryButton(
-            label: 'تأكيد الاستلام',
+            label: t.confirmPickup,
             icon: Icons.check,
             fontSize: 15,
             padding: const EdgeInsets.all(13),
@@ -85,7 +87,7 @@ class PickupScreen extends ConsumerWidget {
               ref.read(driverProvider.notifier).confirmPickup(o.id);
               ScaffoldMessenger.of(context)
                 ..hideCurrentSnackBar()
-                ..showSnackBar(SnackBar(content: Text('تم استلام طلب ${o.name}'), behavior: SnackBarBehavior.floating));
+                ..showSnackBar(SnackBar(content: Text(t.pickedUpOrder(o.name)), behavior: SnackBarBehavior.floating));
             },
           ),
         ],
@@ -93,7 +95,7 @@ class PickupScreen extends ConsumerWidget {
     );
   }
 
-  Widget _doneCard(Order o) {
+  Widget _doneCard(L t, Order o) {
     return AppCard(
       color: AppColors.tealTint2,
       borderColor: const Color(0xFFE2ECE9),
@@ -110,11 +112,11 @@ class PickupScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const Row(
+          Row(
             children: [
-              Icon(Icons.check, size: 15, color: AppColors.teal),
-              SizedBox(width: 5),
-              Text('تم', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal)),
+              const Icon(Icons.check, size: 15, color: AppColors.teal),
+              const SizedBox(width: 5),
+              Text(t.done, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal)),
             ],
           ),
         ],
