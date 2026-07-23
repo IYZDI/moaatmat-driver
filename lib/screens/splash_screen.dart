@@ -6,7 +6,7 @@ import '../l10n.dart';
 import '../state.dart';
 import '../widgets.dart';
 
-/// شاشة افتتاحية (٥ ثوانٍ): الشعار يظهر بحركة ارتدادية ثم الاسم، وخلالها
+/// شاشة افتتاحية (٣ ثوانٍ): الشعار يظهر بحركة ارتدادية ثم الاسم، وخلالها
 /// تكتمل استعادة الجلسة المحفوظة — فتهبط مباشرة على الرئيسية أو الدخول.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -35,7 +35,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void initState() {
     super.initState();
-    _timer = Timer(const Duration(seconds: 5), _go);
+    _timer = Timer(const Duration(seconds: 3), _go);
   }
 
   void _go() {

@@ -21,7 +21,7 @@ GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
     refreshListenable: refreshListenable,
     redirect: (context, state) {
       final loc = state.matchedLocation;
-      if (loc == '/splash') return null; // السبلاش يقرّر وجهته بنفسه بعد ٥ ثوانٍ
+      if (loc == '/splash') return null; // السبلاش يقرّر وجهته بنفسه بعد ٣ ثوانٍ
       final authed = ref.read(driverProvider).authed;
       final atGate = loc == '/login';
       if (!authed && !atGate) return '/login';
