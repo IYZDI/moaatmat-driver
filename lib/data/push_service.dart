@@ -14,6 +14,19 @@ class PushService {
   bool _inited = false;
   bool _registered = false;
   bool _registering = false;
+  bool _apns = false;
+  String _permission = '—';
+  String _lastError = '';
+
+  /// ملخّص حالة سلسلة الإشعارات — يظهر في «حسابي» بضغطة مطوّلة على الاسم.
+  String get statusSummary {
+    final env = Env.hasFirebase ? '✓' : '✗';
+    final init = _inited ? '✓' : '✗';
+    final apns = _apns ? '✓' : '✗';
+    final reg = _registered ? '✓' : '✗';
+    final err = _lastError.isEmpty ? '' : ' | $_lastError';
+    return 'Env $env · Init $init · إذن $_permission · APNs $apns · رمز $reg$err';
+  }
 
   /// تهيئة Firebase — تُستدعى عند الإقلاع. أي فشل يُتجاهل (التطبيق يعمل بلا دفع).
   ///
@@ -40,6 +53,7 @@ class PushService {
       );
       _inited = true;
     } catch (e) {
+      _lastError = 'init: $e';
       debugPrint('PushService.init: $e');
     }
   }
@@ -51,6 +65,7 @@ class PushService {
     try {
       final messaging = FirebaseMessaging.instance;
       final settings = await messaging.requestPermission();
+      _permission = settings.authorizationStatus.name;
       if (settings.authorizationStatus == AuthorizationStatus.denied) return;
 
       // iOS: لا يصدر رمز FCM قبل وصول رمز APNs — ننتظره حتى ~15 ثانية.
@@ -63,6 +78,10 @@ class PushService {
           if (apns == null) {
             await Future<void>.delayed(const Duration(seconds: 1));
           }
+        }
+        _apns = apns != null;
+        if (apns == null) {
+          _lastError = 'لم يصل رمز APNs (صلاحية الإشعارات/البروفايل)';
         }
       }
 
@@ -80,14 +99,22 @@ class PushService {
       for (var i = 0; i < 4 && token == null; i++) {
         try {
           token = await messaging.getToken();
-        } catch (_) {
+        } catch (e) {
+          _lastError = 'getToken: $e';
           await Future<void>.delayed(const Duration(seconds: 2));
         }
       }
-      await save(token);
+      try {
+        await save(token);
+        if (token != null) _lastError = '';
+      } catch (e) {
+        _lastError = 'save: $e';
+        rethrow;
+      }
       messaging.onTokenRefresh.listen((t) => save(t).catchError((_) {}));
       _registered = token != null;
     } catch (e) {
+      if (_lastError.isEmpty) _lastError = 'register: $e';
       debugPrint('PushService.registerToken: $e');
     } finally {
       _registering = false;

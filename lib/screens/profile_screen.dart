@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
 import '../config/env.dart';
+import '../data/push_service.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -16,6 +17,9 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _notif = true;
+
+  /// تشخيص الإشعارات الفورية — مخفيّ، يظهر بضغطة مطوّلة على اسم المندوب.
+  bool _showPush = false;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +43,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: 0.18)),
                   child: Text(driverInitial(name), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700)),
                 ),
-                Text(name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+                GestureDetector(
+                  onLongPress: () => setState(() => _showPush = !_showPush),
+                  child: Text(name,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700)),
+                ),
                 const SizedBox(height: 3),
                 Text(
                   '${t.deliveryStaff}${data.orgName.trim().isNotEmpty ? ' · ${data.orgName.trim()}' : ''}',
@@ -96,6 +107,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     last: true,
                   ),
                 ]),
+                if (_showPush) ...[
+                  const SizedBox(height: 16),
+                  _group([
+                    _row(Icons.notifications_active_outlined, 'الإشعارات الفورية',
+                        iconColor: AppColors.muted2,
+                        trailing: Flexible(
+                          child: Text(PushService.instance.statusSummary,
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                  fontSize: 10.5, color: AppColors.muted)),
+                        ),
+                        last: true),
+                  ]),
+                ],
                 const SizedBox(height: 16),
                 _logoutButton(),
               ],
