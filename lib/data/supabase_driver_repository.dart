@@ -22,6 +22,8 @@ class SupabaseDriverRepository implements DriverRepository {
   @override
   bool get isAuthed => _token != null;
   @override
+  String? get sessionToken => _token;
+  @override
   String? get driverId => _identity?.driverId;
   @override
   DriverIdentity? get identity => _identity;

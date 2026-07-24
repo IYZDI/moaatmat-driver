@@ -5,6 +5,7 @@ import 'models.dart';
 import 'data/repository.dart';
 import 'data/driver_repository.dart';
 import 'data/notifications_service.dart';
+import 'data/push_service.dart';
 
 /// معلومات المندوب (ثابتة في الوضع التجريبي — تُجلب لاحقاً من الحساب الحقيقي).
 class Driver {
@@ -247,6 +248,12 @@ class DriverNotifier extends Notifier<DriverData> {
     await _msgSub?.cancel();
     _msgSub = _repo!.incomingMessages.listen(_onIncomingMessage);
     await NotificationsService.instance.init();
+
+    // إشعارات فورية (تصل والتطبيق مغلق): تسجيل رمز الجهاز برمز الجلسة.
+    final session = _repo!.sessionToken;
+    if (session != null) {
+      PushService.instance.registerToken(session);
+    }
   }
 
   void _onIncomingMessage(IncomingMessage msg) {

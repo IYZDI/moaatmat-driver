@@ -31,6 +31,9 @@ abstract class DriverRepository {
   String? get driverId;
   DriverIdentity? get identity;
 
+  /// رمز الجلسة الحالي (يُمرَّر لدوال RPC — يلزم لتسجيل جهاز الإشعارات).
+  String? get sessionToken;
+
   /// يتحقّق من رمز المؤسسة ويرسل OTP للجوال. يعيد اسم المؤسسة. يرمي عند الفشل.
   Future<String> sendOtp(String orgCode, String phone);
 

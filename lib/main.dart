@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/env.dart';
+import 'data/push_service.dart';
 import 'l10n.dart';
 import 'theme.dart';
 import 'router.dart';
@@ -18,6 +19,8 @@ Future<void> main() async {
       publishableKey: Env.supabaseAnonKey,
     );
   }
+  // إشعارات فورية — تُهيَّأ فقط عند توفّر إعدادات Firebase.
+  await PushService.instance.init();
   runApp(const ProviderScope(child: MoaatmatDriverApp()));
 }
 

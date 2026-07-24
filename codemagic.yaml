@@ -28,6 +28,8 @@ workflows:
           LOC="يستخدم التطبيق موقعك لبثّ موقع التوصيل الحيّ للعميل أثناء التوصيل."
           /usr/libexec/PlistBuddy -c "Set :NSLocationAlwaysAndWhenInUseUsageDescription $LOC" ios/Runner/Info.plist || \
           /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string $LOC" ios/Runner/Info.plist
+      - name: إعداد Firebase للإشعارات (GoogleService-Info.plist)
+        script: bash scripts/gen_firebase_ios.sh
       - name: تثبيت CocoaPods
         script: find . -name "Podfile" -execdir pod install \;
       - name: التوقيع — شهادة توزيع + بروفايل
@@ -49,6 +51,10 @@ workflows:
         script: |
           flutter build ipa --release \
             --build-number="$BUILD_NUMBER" \
+            --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-}" \
+            --dart-define=FIREBASE_DRIVER_APP_ID="${FIREBASE_DRIVER_APP_ID:-}" \
+            --dart-define=FIREBASE_SENDER_ID="${FIREBASE_SENDER_ID:-}" \
+            --dart-define=FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
