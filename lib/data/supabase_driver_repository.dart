@@ -133,6 +133,18 @@ class SupabaseDriverRepository implements DriverRepository {
 
   @override
   Future<void> signOut() async {
+    // إبطال الرمز على الخادم أوّلًا: مسحُ التخزين المحلّي وحده كان يترك الرمز
+    // صالحًا، فمن التقطه قبل الخروج يظلّ داخلًا. فشلُ النداء لا يمنع الخروج
+    // المحلّي — بقاءُ المندوب داخلًا على جهازه أسوأ من رمزٍ يبطل لاحقًا
+    // بانتهاء صلاحيته.
+    final t = _token;
+    if (t != null) {
+      try {
+        await _db.rpc('driver_logout', params: {'p_token': t});
+      } catch (_) {
+        /* بلا تصعيد — الخروج المحلّي يمضي */
+      }
+    }
     _token = null;
     _identity = null;
     final sp = await SharedPreferences.getInstance();
