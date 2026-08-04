@@ -1,74 +1,84 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
-/// شعار «مؤتمت» (حلقة الأتمتة): قوسان يدوران حول المركز ونقطتان (مدخل/مخرج).
-/// مرسوم عبر CustomPaint دون أي حزم إضافية. يتكيّف مع الوضع الفاتح/الداكن.
+/// شعار «مؤتمت» — العلامة الشبكيّة من عُدّة الهوية (`svg/mark-indigo.svg`).
+///
+/// المربّعات بإحداثياتها كما في الملف المتّجه (viewBox 100×90) لا مرسومةً
+/// بالتقدير: شعارٌ «يشبه» الشعار ليس الشعار، والفرق يظهر أوّل ما يوضع بجانب
+/// المطبوعات من العُدّة نفسها.
+///
+/// حرف M شبكيّ: عمودان كاملان على الطرفين، وقمّتان باهتتان (٣٠٪) تصنعان
+/// الانحدار، ونقطةُ حبرٍ في القلب هي العقدة الوحيدة غير النيليّة.
+///
+/// (كان قبله حلقةً تركوازية `#2DD4BF` — من الهوية السابقة.)
 class MoaatmatLogo extends StatelessWidget {
   const MoaatmatLogo({
     super.key,
     this.size = 20,
-    this.accent = const Color(0xFF2DD4BF),
-    this.ring,
+    this.accent = brandIndigo,
     this.dot,
   });
 
+  /// نيليّ مؤتمت — من دليل الأصول.
+  static const brandIndigo = Color(0xFF4F46E5);
+
+  /// حبر الهوية — لون العقدة الوسطى.
+  static const brandInk = Color(0xFF16161A);
+
   final double size;
   final Color accent;
-  final Color? ring;
+
+  /// لون العقدة الوسطى. الافتراضي حبر الهوية، ويُمرَّر أبيضَ على خلفيةٍ داكنة.
   final Color? dot;
+
+  // [x, y] بمقياس الملف المتّجه — والمربّع 16×16 بنصف قطر 5.
+  static const _cells = [
+    [4.0, 4.0], [4.0, 26.0], [4.0, 48.0], [4.0, 70.0],
+    [26.0, 26.0], [58.0, 26.0],
+    [80.0, 4.0], [80.0, 26.0], [80.0, 48.0], [80.0, 70.0],
+  ];
+  static const _faint = [
+    [26.0, 4.0],
+    [58.0, 4.0],
+  ];
 
   @override
   Widget build(BuildContext context) {
+    // الارتفاع يتبع نسبة الشعار (90/100): تمرير `size` للبُعدين يسحقه.
     return CustomPaint(
-      size: Size.square(size),
-      painter: _MoaatmatPainter(
-        accent: accent,
-        ring: ring ?? Theme.of(context).dividerColor,
-        dot: dot ?? Theme.of(context).colorScheme.onSurface,
-      ),
+      size: Size(size, size * 90 / 100),
+      painter: _GridMarkPainter(accent: accent, dot: dot ?? brandInk),
     );
   }
 }
 
-class _MoaatmatPainter extends CustomPainter {
-  _MoaatmatPainter({required this.accent, required this.ring, required this.dot});
+class _GridMarkPainter extends CustomPainter {
+  _GridMarkPainter({required this.accent, required this.dot});
 
   final Color accent;
-  final Color ring;
   final Color dot;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final s = size.width;
-    final center = Offset(s / 2, s / 2);
-    final r = s * 30 / 76; // نصف القطر بمقياس viewBox الأصلي (76)
-    final sw = s * 8 / 76; // سماكة الخط
-    final dotR = s * 7 / 76;
+    final k = size.width / 100; // معامل التحجيم من مقياس الملف المتّجه
+    final r = Radius.circular(5 * k);
 
-    final ringPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = sw
-      ..color = ring;
-    final arcPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = sw
-      ..strokeCap = StrokeCap.round
-      ..color = accent;
+    void cell(double x, double y, Color c) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(x * k, y * k, 16 * k, 16 * k), r),
+        Paint()..color = c,
+      );
+    }
 
-    canvas.drawCircle(center, r, ringPaint);
-
-    final rect = Rect.fromCircle(center: center, radius: r);
-    const quarter = math.pi / 2;
-    canvas.drawArc(rect, -quarter, quarter, false, arcPaint); // أعلى ← يمين
-    canvas.drawArc(rect, quarter, quarter, false, arcPaint); // أسفل ← يسار
-
-    final dotPaint = Paint()..color = dot;
-    canvas.drawCircle(Offset(center.dx, s * 8 / 76), dotR, dotPaint); // نقطة علوية
-    canvas.drawCircle(Offset(center.dx, s * 68 / 76), dotR, dotPaint); // نقطة سفلية
+    for (final p in MoaatmatLogo._cells) {
+      cell(p[0], p[1], accent);
+    }
+    for (final p in MoaatmatLogo._faint) {
+      cell(p[0], p[1], accent.withValues(alpha: 0.3));
+    }
+    cell(42, 48, dot); // العقدة الوسطى
   }
 
   @override
-  bool shouldRepaint(covariant _MoaatmatPainter old) =>
-      old.accent != accent || old.ring != ring || old.dot != dot;
+  bool shouldRepaint(covariant _GridMarkPainter old) =>
+      old.accent != accent || old.dot != dot;
 }

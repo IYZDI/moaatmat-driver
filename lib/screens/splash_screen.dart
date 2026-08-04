@@ -172,20 +172,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                       Text(
                         'Powered by',
                         style: TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                       const SizedBox(width: 6),
-                      const MoaatmatLogo(size: 16, ring: Colors.white24, dot: Colors.white),
+                      const MoaatmatLogo(size: 26, accent: Color(0xFFA5B4FC), dot: Colors.white),
                       const SizedBox(width: 5),
                       const Text(
                         'Moaatmat',
                         style: TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF2DD4BF),
+                          color: Color(0xFFA5B4FC),
                         ),
                       ),
                     ],
