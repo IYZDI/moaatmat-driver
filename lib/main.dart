@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/env.dart';
+import 'data/crash_reporter.dart';
 import 'data/push_service.dart';
 import 'l10n.dart';
 import 'theme.dart';
@@ -21,7 +22,9 @@ Future<void> main() async {
   }
   // إشعارات فورية — تُهيَّأ فقط عند توفّر إعدادات Firebase.
   await PushService.instance.init();
-  runApp(const ProviderScope(child: MoaatmatDriverApp()));
+  // التقاطُ الانهيار يلفّ `runApp` (0296) — والمندوبُ مجهولٌ فيُرسل رمزُه
+  // مع التقرير لتُعرف مؤسّستُه.
+  CrashReporter.install(() => runApp(const ProviderScope(child: MoaatmatDriverApp())));
 }
 
 class MoaatmatDriverApp extends ConsumerWidget {

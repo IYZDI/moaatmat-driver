@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models.dart';
+import 'crash_reporter.dart';
 import 'driver_repository.dart';
 
 /// تنفيذ Supabase بنموذج الرمز (ترحيلات 0125–0134). الدخول عبر OTP (Authentica)
@@ -77,6 +78,7 @@ class SupabaseDriverRepository implements DriverRepository {
         throw Exception(data['reason'] == 'invalid_otp' ? 'رمز التحقّق غير صحيح' : (data['error'] ?? 'تعذّر الدخول'));
       }
       _token = data['token'] as String;
+      CrashReporter.driverToken = _token;   // ليُعرف صاحبُ التقرير (0296)
       // الجوال الحقيقي: نفضّل ما يعيده الخادم (driver_phone)، وإلا الجوال المُدخَل
       // مُطبَّعًا إلى صيغة E.164.
       final serverPhone = (data['driver_phone'] ?? '') as String? ?? '';
@@ -106,6 +108,7 @@ class SupabaseDriverRepository implements DriverRepository {
     final t = sp.getString(_kToken);
     if (t == null) return false;
     _token = t;
+    CrashReporter.driverToken = _token;   // ليُعرف صاحبُ التقرير (0296)
     _identity = DriverIdentity(
       driverId: sp.getString(_kId) ?? '',
       name: sp.getString(_kName) ?? '',
@@ -146,6 +149,7 @@ class SupabaseDriverRepository implements DriverRepository {
       }
     }
     _token = null;
+    CrashReporter.driverToken = _token;   // ليُعرف صاحبُ التقرير (0296)
     _identity = null;
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kToken);
