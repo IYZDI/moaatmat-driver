@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +19,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
 
+  Timer? _poll;
+
   @override
   void initState() {
     super.initState();
@@ -28,10 +31,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // المحادثة مفتوحة → الرسائل الواردة تحدّثها مباشرة بلا إشعار نظام
       n.setOpenChat(widget.orderId);
     });
+    // ============================================================
+    // استطلاعٌ كلّ ثماني ثوانٍ **ما دامت الشاشةُ مفتوحة**.
+    // ------------------------------------------------------------
+    // البثُّ الحيّ (0143) يقع على قناة `order-chat:<order_id>`، وتوصيلةُ
+    // الاشتراك بلا طلب — فلا قناةَ لها ولا حدث. وهي ٧٤ من ٨٩ في الإنتاج.
+    // فبلا هذا لبقيت محادثةُ الاشتراك — وهي الأكثرُ استعمالًا — لا تتحدّث
+    // إلّا بالخروج والعودة. والاستطلاعُ يتوقّف مع إغلاق الشاشة.
+    // ============================================================
+    _poll = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (mounted) ref.read(driverProvider.notifier).loadMessages(widget.orderId);
+    });
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     ref.read(driverProvider.notifier).setOpenChat(null);
     _controller.dispose();
     _scroll.dispose();

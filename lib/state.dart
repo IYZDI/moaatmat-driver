@@ -393,19 +393,19 @@ class DriverNotifier extends Notifier<DriverData> {
 
   // ---------- المحادثة ----------
   // id = معرّف التوصيلة (delivery_id)؛ المحادثة مرتبطة بـ order_id للطلب.
+  // 0291 — المحادثةُ بالتوصيلة. وكان هنا سطران يترجمان معرّفَ التوصيلة إلى
+  // معرّف الطلب ثمّ **يعودان صامتَين** إن كان فارغًا: «توصيلة اشتراك بلا طلب →
+  // لا محادثة». وذلك يعني أنّ ٧٤ من ٨٩ توصيلةً في الإنتاج — كلُّ عمل الاشتراك —
+  // لم يكن لها محادثةٌ ألبتّة، والمندوبُ يفتحها فيراها فارغةً بلا سبب.
   Future<void> loadMessages(String id) async {
     if (!connected) return;
-    final orderId = state.orderById(id)?.orderId;
-    if (orderId == null) return; // توصيلة اشتراك بلا طلب → لا محادثة
-    final msgs = await _repo!.messages(orderId);
+    final msgs = await _repo!.messages(id);
     state = state.copyWith(messages: {...state.messages, id: msgs});
   }
 
   Future<void> sendMessage(String id, String text) async {
     if (connected) {
-      final orderId = state.orderById(id)?.orderId;
-      if (orderId == null) return;
-      await _repo!.sendMessage(orderId, text);
+      await _repo!.sendMessage(id, text);
       await loadMessages(id);
     } else {
       final list = List<ChatMessage>.of(state.messages[id] ?? const []);

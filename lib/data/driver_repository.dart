@@ -58,8 +58,11 @@ abstract class DriverRepository {
   Future<void> confirmDelivered(String deliveryId, List<int> photoBytes);
   Future<void> markFailed(String deliveryId, String reason);
 
-  Future<List<ChatMessage>> messages(String orderId);
-  Future<void> sendMessage(String orderId, String body);
+  /// محادثةُ **التوصيلة** لا الطلب (الهجرة 0291): كلُّ توصيلةٍ محادثةٌ تبدأ
+  /// نظيفة، فلا تظهر رسائلُ أمسِ اليوم. وتوصيلةُ الاشتراك — وهي ٧٤ من ٨٩ في
+  /// الإنتاج — صار لها محادثةٌ أصلًا، وكانت مستحيلةً قبلها.
+  Future<List<ChatMessage>> messages(String deliveryId);
+  Future<void> sendMessage(String deliveryId, String body);
 
   /// يبثّ موقع المندوب الحيّ.
   Future<void> broadcastLocation(double lat, double lng);

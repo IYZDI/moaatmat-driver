@@ -243,8 +243,11 @@ class SupabaseDriverRepository implements DriverRepository {
   }
 
   @override
-  Future<List<ChatMessage>> messages(String orderId) async {
-    final rows = await _db.rpc('driver_messages', params: {'p_token': _token, 'p_order_id': orderId}) as List<dynamic>;
+  Future<List<ChatMessage>> messages(String deliveryId) async {
+    // 0291 — بالتوصيلة لا بالطلب. والدالّةُ القديمة (driver_messages) باقيةٌ
+    // في القاعدة عمدًا لنسخ التطبيق المثبَّتة على الأجهزة، ولا تُنادى من هنا.
+    final rows = await _db.rpc('driver_delivery_messages',
+        params: {'p_token': _token, 'p_delivery_id': deliveryId}) as List<dynamic>;
     return rows.map((r) {
       final m = r as Map<String, dynamic>;
       final c = DateTime.tryParse((m['created_at'] ?? '') as String? ?? '')?.toLocal();
@@ -257,8 +260,9 @@ class SupabaseDriverRepository implements DriverRepository {
   }
 
   @override
-  Future<void> sendMessage(String orderId, String body) =>
-      _db.rpc('driver_send_message', params: {'p_token': _token, 'p_order_id': orderId, 'p_body': body});
+  Future<void> sendMessage(String deliveryId, String body) =>
+      _db.rpc('driver_send_delivery_message',
+          params: {'p_token': _token, 'p_delivery_id': deliveryId, 'p_body': body});
 
   @override
   Future<void> broadcastLocation(double lat, double lng) async {
