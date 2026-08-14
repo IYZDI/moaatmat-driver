@@ -7,15 +7,49 @@ import '../widgets.dart';
 import '../state.dart';
 import '../models.dart';
 
-class PickupScreen extends ConsumerWidget {
+class PickupScreen extends ConsumerStatefulWidget {
   const PickupScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PickupScreen> createState() => _PickupScreenState();
+}
+
+class _PickupScreenState extends ConsumerState<PickupScreen> {
+  bool _pickingAll = false;
+
+  /// استلامُ الكلّ ثمّ الانتقال إلى «العملاء» — وهي الخطوةُ التالية في المسار.
+  ///
+  /// ⚠ ولا ينتقل إلّا إن **لم يبقَ** معلَّق: لو سقط تأكيدُ طلبٍ في الشبكة
+  ///   فالانتقالُ يُخفي بقيّةً لم تُستلم، والمندوبُ يخرج من المطبخ ناقصًا.
+  Future<void> _pickAll() async {
+    setState(() => _pickingAll = true);
+    final t = ref.read(stringsProvider);
+    final n = await ref.read(driverProvider.notifier).confirmPickupAll();
+    if (!mounted) return;
+    setState(() => _pickingAll = false);
+    if (n > 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+            content: Text(t.pickedUpAll(n)),
+            behavior: SnackBarBehavior.floating));
+    }
+    final left = ref
+        .read(driverProvider)
+        .orders
+        .where((o) => o.active && !o.picked)
+        .length;
+    if (left == 0 && mounted) context.go('/customers');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final t = ref.watch(stringsProvider);
     final orders = ref.watch(driverProvider).orders;
+    final pending = orders.where((o) => o.active && !o.picked).length;
     return Scaffold(
       backgroundColor: Colors.white,
+      // (السحبُ للرجوع يُلَفّ في المُوجِّه لكلّ الشاشات — لا هنا شاشةً شاشة.)
       body: Column(
         children: [
           TealHeader(
@@ -55,6 +89,18 @@ class PickupScreen extends ConsumerWidget {
               ],
             ),
           ),
+          // زرُّ «استلام الكل» أسفلَ الشاشة لا أعلاها: هو فعلُ الخروج من هذه
+          // الصفحة، وموضعُه حيث يقع الإبهام بعد مراجعة القائمة. ولا يظهر إن لم
+          // يبقَ معلَّق — زرٌّ لا يفعل شيئًا أسوأُ من غيابه.
+          if (pending > 0)
+            SafeArea(
+              minimum: const EdgeInsets.fromLTRB(22, 0, 22, 14),
+              child: PrimaryButton(
+                label: _pickingAll ? '…' : t.pickAll(pending),
+                icon: Icons.done_all,
+                onTap: _pickingAll ? null : _pickAll,
+              ),
+            ),
         ],
       ),
     );

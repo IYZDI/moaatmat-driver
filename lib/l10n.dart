@@ -104,6 +104,9 @@ class L {
   String get confirmPickup => _('تأكيد الاستلام', 'Confirm pickup');
   String pickedUpOrder(String name) => _('تم استلام طلب $name', "Picked up $name's order");
   String get done => _('تم', 'Done');
+  String pickAll(int n) => _('استلام الكل ($n)', 'Pick up all ($n)');
+  String pickedUpAll(int n) =>
+      _('تم استلام $n طلبات', 'Picked up $n orders');
 
   // ---------- العملاء ----------
   String get deliveryCustomers => _('عملاء التوصيل', 'Delivery customers');

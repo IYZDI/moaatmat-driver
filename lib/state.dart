@@ -324,6 +324,32 @@ class DriverNotifier extends Notifier<DriverData> {
     }
   }
 
+  /// استلامُ كلّ الطلبات المعلّقة دفعةً واحدة.
+  ///
+  /// ⚠ ولا يُنادى `confirmPickup` في حلقة: كلٌّ منها يستدعي `refresh()` — أي
+  ///   ثلاثةُ نداءاتِ شبكةٍ لكلّ طلب، وقائمةٌ تُعاد بناؤها تحت يد المندوب بين
+  ///   طلبٍ وآخر. فالتأكيداتُ تُرسل ثمّ تُزامَن **مرّةً واحدة** في النهاية.
+  ///
+  /// ويُعيد عددَ ما استُلم فعلًا: صفرٌ يعني ألّا شيءَ كان معلّقًا، والشاشةُ
+  /// تفرّق بين «استلمتُ عشرة» و«لم يكن ثمّة شيء».
+  Future<int> confirmPickupAll() async {
+    final pending = [
+      for (final o in state.orders)
+        if (o.active && !o.picked) o.id,
+    ];
+    if (pending.isEmpty) return 0;
+    for (final id in pending) {
+      _setStatusMock(id, OrderStatus.picked); // انعكاسٌ فوريّ في الواجهة
+    }
+    if (connected) {
+      for (final id in pending) {
+        await _repo!.confirmPickup(id);
+      }
+      await refresh(); // مزامنةٌ واحدةٌ بعد الكلّ لا بعد كلّ واحد
+    }
+    return pending.length;
+  }
+
   Future<void> confirmEnroute(String id) async {
     if (connected) {
       _setStatusMock(id, OrderStatus.enroute); // انعكاس فوري في الواجهة

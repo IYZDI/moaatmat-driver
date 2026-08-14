@@ -13,6 +13,76 @@ IconData backChevron(BuildContext context) => Icons.chevron_left;
 /// يختصر معرّفات UUID الطويلة للعرض (#8db9896e بدل السلسلة الكاملة).
 String shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
+/// ============================================================================
+/// السحبُ من الحافة للرجوع.
+/// ----------------------------------------------------------------------------
+/// شاشاتُ هذا التطبيق تتنقّل بـ`context.go` لا `push` (تبديلُ الشاشة لا تكديسُها)،
+/// فلا مكدّسَ خلفها تسحبه إيماءةُ Flutter المعتادة — ولذلك لا يكفي هنا ما كفى في
+/// تطبيق العميل (مُبدّلُ انتقالٍ في الثيم).
+///
+/// فالسحبُ يُترجَم إلى **فعل الرجوع نفسِه** الذي يفعله سهمُ الشاشة، ويُمرَّر من
+/// الشاشة صراحةً — لا يُخمَّن. وشرطان يمنعان الإطلاقَ بالخطأ:
+///   • يبدأ من حافةٍ عرضُها 24 منطقيّة (اتّجاهُها يتبع اتّجاه اللغة).
+///   • ويلزم مسافةٌ ≥ 60 وسرعةٌ للداخل — فلا يرجع التطبيقُ من لمسةٍ عابرة.
+///
+/// ⚠ ولا يُلَفّ به محتوًى أفقيُّ التمرير (خريطةٌ أو شريطُ أيّام): الحافةُ وحدَها
+///   تلتقط، فما بعدها يمرّ إلى ما تحته.
+/// ============================================================================
+class SwipeBack extends StatefulWidget {
+  const SwipeBack({super.key, required this.child, required this.onBack});
+
+  final Widget child;
+  final VoidCallback onBack;
+
+  @override
+  State<SwipeBack> createState() => _SwipeBackState();
+}
+
+class _SwipeBackState extends State<SwipeBack> {
+  double _travelled = 0; // المسافةُ المتراكمة للداخل في السحبة الواحدة
+  bool _fired = false; // فلا يُنادى الرجوعُ مرّتين في سحبةٍ واحدة
+
+  @override
+  Widget build(BuildContext context) {
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return Stack(
+      children: [
+        widget.child,
+        Positioned(
+          top: 0,
+          bottom: 0,
+          // في RTL الحافةُ اليمنى هي «الأمام»، وفي LTR اليسرى.
+          left: rtl ? null : 0,
+          right: rtl ? 0 : null,
+          width: 24,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragStart: (_) {
+              _travelled = 0;
+              _fired = false;
+            },
+            onHorizontalDragUpdate: (d) {
+              // «للداخل» يعني بعيدًا عن الحافة: يمينًا في LTR ويسارًا في RTL.
+              _travelled += rtl ? -d.delta.dx : d.delta.dx;
+            },
+            onHorizontalDragEnd: (d) {
+              if (_fired) return;
+              final v = d.velocity.pixelsPerSecond.dx;
+              final inwardV = rtl ? -v : v;
+              // مسافةٌ كافية **أو** قذفةٌ سريعة — كإيماءة النظام.
+              if (_travelled > 60 || inwardV > 300) {
+                _fired = true;
+                widget.onBack();
+              }
+            },
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// مساحة علوية آمنة بدل شريط الحالة الوهمي القديم.
 ///
 /// كان هذا الكلاس سابقًا يرسم شريطًا وهميًّا (9:41 + بطارية/شبكة)، وهو ما كان
