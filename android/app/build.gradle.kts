@@ -12,6 +12,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // يشترطها flutter_local_notifications 18: تستعمل java.time على أندرويد
+        // القديم. وبدونها يسقط البناءُ في dex بـ"desugaring is not enabled" —
+        // لا في الشفرة، فيُقرأ كأنّ العطل في مكانٍ آخر.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -42,4 +46,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
