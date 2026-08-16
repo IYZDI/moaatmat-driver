@@ -22,6 +22,33 @@ Widget _back(BuildContext context, String parent, Widget child) => SwipeBack(
       child: child,
     );
 
+/// ============================================================================
+/// **البلاغ**: «السحبُ للرجوع مقلوب: أسحب من اليمين لليسار وحركةُ الشاشة تظهر
+/// من اليسار لليمين.»
+///
+/// والإيماءةُ نفسُها سليمةٌ (`SwipeBack` يحسب RTL صحيحًا: الحافةُ اليمنى،
+/// والداخلُ يسارًا). **العلّةُ في الحركة لا في السحب.**
+///
+/// الشاشاتُ الخمس تبويباتٌ في الشريط السفليّ، والتنقّلُ بينها كلُّه `go` —
+/// أي **استبدالٌ لا دفع**. فـ`canPop()` أبدًا false، والرجوعُ يُنفَّذ
+/// `go('/home')` وهو انتقالٌ **إلى الأمام**: تنزلق الصفحةُ الجديدة داخلةً كما
+/// تنزلق عند التقدّم. فتقول الإيماءةُ «رجوع» وتقول الحركةُ «تقدّم».
+///
+/// والعلاجُ ليس عكسَ الإيماءة — تلك صحيحة — بل **نزعُ الاتّجاه من حركة
+/// التبويبات**: التبويباتُ لا تنزلق في أيّ تطبيق، تتلاشى. فلا تعاكس الإيماءةَ
+/// لأنّها لا تدّعي اتّجاهًا أصلًا.
+///
+/// أمّا الشاشاتُ الورقيّة (محادثة · خريطة · تسليم) فتُدفع دفعًا وتُرجَع
+/// بـ`pop`، فتنزلق الحركةُ عكسيًّا كما ينتظر المستعمل.
+/// ============================================================================
+CustomTransitionPage<void> _fadeTab(Widget child) => CustomTransitionPage<void>(
+      child: child,
+      transitionDuration: const Duration(milliseconds: 160),
+      reverseTransitionDuration: const Duration(milliseconds: 160),
+      transitionsBuilder: (_, animation, _, page) =>
+          FadeTransition(opacity: animation, child: page),
+    );
+
 GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
   return GoRouter(
     initialLocation: '/splash',
@@ -50,11 +77,12 @@ GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
       // ======================================================================
       GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
       GoRoute(path: '/login', builder: (c, s) => const LoginScreen()),
-      GoRoute(path: '/home', builder: (c, s) => const HomeScreen()),
-      GoRoute(path: '/pickup', builder: (c, s) => _back(c, '/home', const PickupScreen())),
-      GoRoute(path: '/customers', builder: (c, s) => _back(c, '/home', const CustomersScreen())),
-      GoRoute(path: '/history', builder: (c, s) => _back(c, '/home', const HistoryScreen())),
-      GoRoute(path: '/profile', builder: (c, s) => _back(c, '/home', const ProfileScreen())),
+      // التبويباتُ الخمس: تلاشٍ بلا اتّجاه (انظر `_fadeTab` أعلاه).
+      GoRoute(path: '/home', pageBuilder: (c, s) => _fadeTab(const HomeScreen())),
+      GoRoute(path: '/pickup', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const PickupScreen()))),
+      GoRoute(path: '/customers', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const CustomersScreen()))),
+      GoRoute(path: '/history', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const HistoryScreen()))),
+      GoRoute(path: '/profile', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const ProfileScreen()))),
       GoRoute(
           path: '/chat/:id',
           builder: (c, s) => _back(c, '/customers', ChatScreen(orderId: s.pathParameters['id']!))),

@@ -321,7 +321,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   // مساعدات: محادثة العميل + فتح خرائط جوجل
                   Row(
                     children: [
-                      SquareIconButton(icon: Icons.chat_bubble_outline, teal: true, size: 48, onTap: () => context.go('/chat/$orderId')),
+                      SquareIconButton(icon: Icons.chat_bubble_outline, teal: true, size: 48, onTap: () => context.push('/chat/$orderId')),
                       const SizedBox(width: 9),
                       Expanded(
                         child: Material(
@@ -358,7 +358,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     fontSize: 16,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     radius: 14,
-                    onTap: () => context.go('/deliver/$orderId'),
+                    onTap: () => context.push('/deliver/$orderId'),
                   ),
                 ],
               ),

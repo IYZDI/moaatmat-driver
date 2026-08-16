@@ -114,6 +114,8 @@ class L {
   String get next => _('التالي', 'Next');
   String get waiting => _('بالانتظار', 'Waiting');
   String get confirmEnroute => _('تأكيد التوجّه', 'Start delivery');
+  /// حين تكون التوصيلةُ «في الطريق» سلفًا: يفتح الخريطةَ ولا يكتب حالةً.
+  String get continueDelivery => _('متابعة التوصيل', 'Continue delivery');
   String calling(String name) => _('جارٍ الاتصال بـ $name', 'Calling $name');
 
   // ---------- المحادثة ----------

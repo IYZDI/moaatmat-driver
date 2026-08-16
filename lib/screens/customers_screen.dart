@@ -109,21 +109,36 @@ class CustomersScreen extends ConsumerWidget {
             children: [
               SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _snack(context, t.calling(o.name))),
               const SizedBox(width: 9),
-              SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.go('/map/${o.id}')),
+              SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.push('/map/${o.id}')),
               const SizedBox(width: 9),
-              SquareIconButton(icon: Icons.chat_bubble_outline, onTap: () => context.go('/chat/${o.id}')),
+              SquareIconButton(icon: Icons.chat_bubble_outline, onTap: () => context.push('/chat/${o.id}')),
               const SizedBox(width: 9),
+              // ⚠ كان الزرُّ يعرض «تأكيد التوجّه» **ثابتًا بلا فرعٍ على الحالة**،
+              //   فيُضغط ثانيةً بعد إعادة فتح التطبيق. وكانت كلُّ ضغطةٍ تكتب
+              //   `enroute_at` من جديد (0128)، فيُمحى التوجيهُ الأوّل وتُنسب
+              //   الرحلةُ كلُّها إلى «استلام←توجيه»: قِيست رحلةُ ٢٦ دقيقةً
+              //   فظهرت في التقرير ٠٫٣ دقيقة.
+              //
+              //   والقاعدةُ حُرست في 0307 (`coalesce`)، لكنّ الحارسَ هناك يمنع
+              //   الفساد ولا يمنع الحيرة: زرٌّ يدعو إلى فعلٍ وقع أصلًا يُربك
+              //   المندوب. فهنا يتفرّع على الحالة، وفي حالة «في الطريق» يفتح
+              //   الخريطةَ **بلا كتابةِ حالة**.
               Expanded(
-                child: PrimaryButton(
-                  label: t.confirmEnroute,
-                  fontSize: 14.5,
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  radius: 12,
-                  onTap: () async {
-                    await ref.read(driverProvider.notifier).confirmEnroute(o.id);
-                    if (context.mounted) context.go('/map/${o.id}');
-                  },
-                ),
+                child: Builder(builder: (context) {
+                  final enroute = o.status == OrderStatus.enroute;
+                  return PrimaryButton(
+                    label: enroute ? t.continueDelivery : t.confirmEnroute,
+                    fontSize: 14.5,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    radius: 12,
+                    onTap: () async {
+                      if (!enroute) {
+                        await ref.read(driverProvider.notifier).confirmEnroute(o.id);
+                      }
+                      if (context.mounted) context.push('/map/${o.id}');
+                    },
+                  );
+                }),
               ),
             ],
           ),
