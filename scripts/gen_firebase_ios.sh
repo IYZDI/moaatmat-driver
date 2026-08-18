@@ -15,10 +15,32 @@ set -euo pipefail
 
 OUT="ios/Runner/GoogleService-Info.plist"
 
-if [ -z "${FIREBASE_API_KEY:-}" ] || [ -z "${FIREBASE_DRIVER_APP_ID:-}" ] || \
-   [ -z "${FIREBASE_SENDER_ID:-}" ] || [ -z "${FIREBASE_PROJECT_ID:-}" ]; then
-  echo "ℹ لا إعدادات Firebase — تخطّي توليد GoogleService-Info.plist"
-  exit 0
+# ⛔ **التخطّي الصامتُ كان يُنتج مندوبًا لا يصله إشعارٌ واحد.**
+# قِيس على الإنتاج (١٨ أغسطس ٢٠٢٦): `driver_device_tokens` **صفرُ صفوف** بينما
+# `device_tokens` للعملاء أربعة. وسجلُّ آخر بناءٍ للسائق (١٦ أغسطس) يقول
+# «ℹ لا إعدادات Firebase — تخطّي...» **والخطوةُ خضراء**. فبقيت رسائلُ العملاء
+# لا ترنّ عند المندوب، وبدا العطلُ في المشغّل أو في الشيفرة ولم يكن فيهما.
+#
+# فالنقصُ صار **يُوقف البناء**، ويُصرَّح بتجاوزه إن أُريد بناءٌ بلا إشعارات:
+#     ALLOW_NO_FIREBASE=1
+MISSING=""
+for v in FIREBASE_API_KEY FIREBASE_DRIVER_APP_ID FIREBASE_SENDER_ID FIREBASE_PROJECT_ID; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] || MISSING="$MISSING $v"
+done
+
+if [ -n "$MISSING" ]; then
+  if [ "${ALLOW_NO_FIREBASE:-}" = "1" ]; then
+    echo "⚠ بناءٌ بلا إشعارات بطلبٍ صريح (ALLOW_NO_FIREBASE=1). الناقص:$MISSING"
+    exit 0
+  fi
+  echo "✗ ينقص إعدادُ Firebase:$MISSING"
+  echo "  بدونه لا يُولَّد GoogleService-Info.plist، فلا يُهيَّأ Firebase في"
+  echo "  AppDelegate، فلا يصدر رمزُ جهاز، فلا يصل المندوبَ إشعارٌ واحد —"
+  echo "  ولا رسالةُ عميلٍ ولا إسنادُ توصيلة."
+  echo "  تُضبط في مجموعة متغيّرات Codemagic «platform_shared»."
+  echo "  ولبناءٍ بلا إشعارات عمدًا: ALLOW_NO_FIREBASE=1"
+  exit 1
 fi
 
 cat > "$OUT" <<PLIST
