@@ -33,7 +33,14 @@ class PushService {
   /// على iOS تُهيّئ AppDelegate التطبيقَ مبكرًا (ليلتقط رمز APNs الصادر لحظة
   /// الإقلاع)، فلا نُعيد التهيئة إن كانت تمّت.
   Future<void> init() async {
-    if (_inited || kIsWeb || !Env.hasFirebase) return;
+    if (_inited || kIsWeb) return;
+    // الخروجُ هنا بلا سجلٍّ هو ما أخفى بناءَ أندرويد بلا مفاتيح: خطوةٌ خضراء
+    // وتطبيقٌ لا يُسجَّل له جهازٌ قطّ. الحارسُ في خطّ البناء يمنع تكرارَها،
+    // وهذا السطر يجعل الحالةَ مقروءةً في بناءٍ محلّيّ كذلك.
+    if (!Env.hasFirebase) {
+      debugPrint('PushService: لا مفاتيح Firebase في هذه الحزمة — لا إشعارات فورية');
+      return;
+    }
     try {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(

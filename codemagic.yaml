@@ -3,6 +3,12 @@
 # التوقيع يعيد استخدام تكامل SahtakAscKey ومفتاح CERTIFICATE_PRIVATE_KEY
 # (مجموعة platform_shared) على مستوى فريق Codemagic — نفس إعداد تطبيق العميل.
 # سجلّ التطبيق مطلوب مرّة واحدة في App Store Connect بمعرّف com.moaatmat.moaatmatDriver.
+#
+# والخطّان كلاهما يقرآن «platform_shared». وما يخصّ أندرويد فيها:
+#   FIREBASE_DRIVER_APP_ID_ANDROID  معرّف تطبيق أندرويد (لا يصلح معرّف iOS)
+#   ANDROID_KEYSTORE_B64 · ANDROID_KEYSTORE_PASSWORD · ANDROID_KEY_ALIAS ·
+#   ANDROID_KEY_PASSWORD            مخزنُ مفتاح الرفع وكلماتُه
+# وما ينقص منها يُسقط البناء — لا يُتخطّى صامتًا.
 
 workflows:
   # ─────────────────── iOS → TestFlight (تطبيق واحد، معرّف ثابت) ───────────────────
@@ -70,17 +76,54 @@ workflows:
           failure: true
 
   # ─────────────────── Android APK (اختبار داخلي) ───────────────────
+  # ⛔ كانت بيئةُ هذا الخطّ سطرًا واحدًا (`flutter: stable`): بلا `groups:` وبلا
+  # أيّ --dart-define، بخلاف ios-driver فوقه. فتخرج مفاتيحُ Firebase الأربعُ
+  # فارغةً، ويكذب `Env.hasFirebase`، ويخرج `PushService.init()` من أوّل سطرٍ بلا
+  # سجلٍّ ولا استثناء — وتُختم الحزمةُ **خضراء** بلا إشعارٍ واحد. والقياس:
+  # `driver_device_tokens` صفرُ صفوفٍ لأندرويد مقابل صفّين لـiOS.
+  # وكان التوقيعُ عطلًا ثانيًا من الصنف نفسِه: مفتاحُ التصحيح من قالب Flutter.
   android-apk:
     name: Moaatmat Driver · Android APK
     instance_type: mac_mini_m2                # الخطة المجانية (mac يبني Android أيضًا)
     max_build_duration: 60
     environment:
+      groups:
+        - platform_shared                    # نفسُ مجموعة ios-driver: مفاتيح Firebase ومخزنُ التوقيع
       flutter: stable
     scripts:
       - name: تثبيت الحزم
         script: flutter pub get
+      - name: حارس إعداد Firebase (يُسقط البناء إن نقص)
+        script: bash scripts/check_firebase_android.sh
+      - name: تجهيز توقيع الإصدار
+        script: bash scripts/gen_android_signing.sh
       - name: بناء APK (release)
-        script: flutter build apk --release
+        script: |
+          set -e
+          # ما يُبنى هو ما فُحص: الحارسُ يُصدّر المعرّفَ عبر $CM_ENV، وهذه الكتلةُ
+          # تُثبت وصولَه. ولو انقطع التصديرُ لخرجت الحزمةُ بمفاتيحَ فارغةٍ **خضراء**
+          # — وهو العطلُ الأصليّ بعينه، فيُقطع هنا ولا يُفترض.
+          case "${FIREBASE_DRIVER_APP_ID:-}" in
+            *:android:*)
+              echo "مفاتيحُ Firebase الواصلة: تطبيق ${FIREBASE_DRIVER_APP_ID}" ;;
+            '')
+              if [ "${ALLOW_NO_FIREBASE:-}" != "1" ]; then
+                echo "✗ مفاتيح Firebase لم تصل خطوةَ البناء (تحقّق من خطوة الحارس)" >&2
+                exit 1
+              fi
+              echo "⚠ بناءٌ بلا إشعارات بطلبٍ صريح (ALLOW_NO_FIREBASE=1)" ;;
+            *)
+              echo "✗ معرّفُ تطبيقٍ ليس لأندرويد يُحقن في الحزمة: ${FIREBASE_DRIVER_APP_ID}" >&2
+              exit 1 ;;
+          esac
+          # أسماءُ الـdart-define نسخةٌ حرفيّةٌ من سطر iOS أعلاه ومن lib/config/env.dart
+          # — حرفٌ مختلفٌ هنا يعني مفتاحًا فارغًا في الحزمة بلا أيّ خطأ.
+          flutter build apk --release \
+            --build-number="${BUILD_NUMBER:-1}" \
+            --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-}" \
+            --dart-define=FIREBASE_DRIVER_APP_ID="${FIREBASE_DRIVER_APP_ID:-}" \
+            --dart-define=FIREBASE_SENDER_ID="${FIREBASE_SENDER_ID:-}" \
+            --dart-define=FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
       - build/app/outputs/**/mapping.txt
