@@ -72,6 +72,15 @@ class Order {
   final double? lat;
   final double? lng;
 
+  /// فترةُ التوصيل كما بِيعت للعميل — عمود `delivery_slot` من `driver_orders`
+  /// (0366)، مثال: «صباحًا (٨ - ١١ ص)».
+  ///
+  /// ⚠ و`null` هي الحالةُ الأغلب لا الاستثناء: طلبُ نقطة البيع لا اشتراكَ له
+  ///   فلا فترةَ بيعت له أصلًا، وكلُّ اشتراكٍ أُنشئ قبل 0365 لم تُحفظ فترتُه.
+  ///   فالمستودعُ يوحّد الفراغَ إلى `null` (لا سلسلةً فارغة) لتبقى للواجهة
+  ///   حالةٌ واحدةٌ تفحصها: موجودةٌ فتُعرض، أو غائبةٌ فلا يُعرض عنها شيء.
+  final String? deliverySlot;
+
   const Order({
     required this.id,
     this.orderId,
@@ -85,6 +94,7 @@ class Order {
     this.eta = '',
     this.lat,
     this.lng,
+    this.deliverySlot,
   });
 
   Order copyWith({OrderStatus? status}) => Order(
@@ -100,6 +110,10 @@ class Order {
         eta: eta,
         lat: lat,
         lng: lng,
+        // ⚠ كلُّ حقلٍ يُنسى هنا يُمحى عند أوّل تغييرِ حالة (والانعكاسُ الفوريّ
+        //   في state.dart يُغيّر الحالةَ قبل ردّ الخادم): فترةُ التوصيل تظهر
+        //   ثمّ تختفي فجأةً بضغطة «تأكيد التوجّه».
+        deliverySlot: deliverySlot,
       );
 
   bool get active =>

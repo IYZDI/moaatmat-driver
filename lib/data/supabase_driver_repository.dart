@@ -166,6 +166,11 @@ class SupabaseDriverRepository implements DriverRepository {
       final m = r as Map<String, dynamic>;
       final name = (m['customer_name'] ?? '') as String? ?? '';
       final eta = (m['eta'] ?? '') as String? ?? '';
+      // 0366 — فترةُ التوصيل المتعاقَد عليها. صفُّ الدالّة يُقرأ **بالاسم** (خريطة
+      // JSON من PostgREST) لا بالترتيب، فموضعُ العمود في نوع العودة لا يعنينا.
+      // والفراغُ يُوحَّد إلى null هنا مرّةً واحدة — لا نتركه سلسلةً فارغةً
+      // تتكرّر الحراسةُ عليها في كلّ شاشة.
+      final slot = ((m['delivery_slot'] ?? '') as String? ?? '').trim();
       return Order(
         id: (m['delivery_id'] ?? '').toString(),
         orderId: m['order_id']?.toString(),
@@ -178,6 +183,7 @@ class SupabaseDriverRepository implements DriverRepository {
         status: orderStatusFromDb((m['status'] ?? 'preparing') as String),
         lat: (m['lat'] as num?)?.toDouble(),
         lng: (m['lng'] as num?)?.toDouble(),
+        deliverySlot: slot.isEmpty ? null : slot,
       );
     }).toList();
   }

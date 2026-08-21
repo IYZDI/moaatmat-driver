@@ -235,6 +235,54 @@ class StatusBadge extends StatelessWidget {
   }
 }
 
+/// شارةُ فترة التوصيل: النافذةُ الزمنيّة التي بِيعت للعميل (0366) — يراها
+/// المندوبُ قبل أن يرتّب جولته.
+///
+/// ⚠ لا تُبنى إلّا لفترةٍ موجودة، والحراسةُ **في موضع الاستدعاء**
+///   (`if (o.deliverySlot != null) ...[…]`) لا هنا بإرجاع `SizedBox.shrink`:
+///   عنصرٌ فارغٌ داخل عمودٍ يُبقي المسافةَ المجاورة له معلَّقة، فتظهر في
+///   البطاقة فجوةٌ لا شيءَ فيها. وأكثرُ ما يحمله المندوبُ اليومَ بلا فترة
+///   (طلبُ نقطة البيع لا فترةَ بيعت له)، فبطاقتُه يجب أن تبدو **كاملةً** لا
+///   معتذرةً عن غياب.
+///
+/// ⚠ وهي **معلومةٌ تُعرض ولا تُرتّب**: ترتيبُ القائمة يأتي من القاعدة بالأقرب
+///   إلى الفرع، وإعادةُ ترتيبها بالفترة قرارُ منتَجٍ آخر.
+class SlotChip extends ConsumerWidget {
+  final String slot;
+  const SlotChip(this.slot, {super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: AppColors.tealTint, borderRadius: BorderRadius.circular(9)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 1.5),
+            child: Icon(Icons.schedule, size: 14, color: AppColors.teal),
+          ),
+          const SizedBox(width: 6),
+          // النصُّ مرنٌ يلتفّ ولا يفيض: عنوانُ الفترة يكتبه المطعمُ نفسُه وقد
+          // يطول («بعد صلاة العشاء (٩ - ١١ م)») على شاشةٍ ضيّقة.
+          Flexible(
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(text: '${t.deliverySlot} · '),
+                TextSpan(text: slot, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ]),
+              style: const TextStyle(fontSize: 12, color: AppColors.teal, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// بطاقة بيضاء بحدّ رفيع.
 class AppCard extends StatelessWidget {
   final Widget child;

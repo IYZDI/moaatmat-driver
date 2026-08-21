@@ -110,6 +110,12 @@ class HomeScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 8),
+            // الفترةُ فوق سطر المعرّف: نافذةُ التسليم أنفعُ للمندوب من رقمٍ
+            // يميّز الطلب. وغيابُها لا يترك أثرًا — لا شرطةً ولا مسافةً.
+            if (o.deliverySlot != null) ...[
+              SlotChip(o.deliverySlot!),
+              const SizedBox(height: 8),
+            ],
             Text(
               '#${shortId(o.id)}${o.prefTime.trim().isNotEmpty ? ' · ${t.preferredDelivery} ${o.prefTime}' : ''}',
               style: const TextStyle(fontSize: 12.5, color: AppColors.muted),

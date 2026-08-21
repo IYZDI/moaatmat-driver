@@ -101,10 +101,13 @@ class DriverData {
 }
 
 // ---------- بذور الوضع التجريبي ----------
+// ⚠ الفترةُ مبذورةٌ **مختلطة** عمدًا: اثنتان لهما فترةٌ وواحدةٌ بلا (طلبُ نقطة
+//   بيعٍ لا اشتراكَ له). فالوضعُ التجريبيّ يُري الحالتين معًا، ويُظهر أنّ
+//   البطاقةَ الخاليةَ من فترةٍ تبدو كاملةً لا ناقصة.
 final _seedOrders = <Order>[
-  Order(id: '1042', name: 'سارة عبدالله', initial: 'س', items: 'برجر مشوي × 2 · بطاطس · مشروب', address: 'حي الياسمين، شارع الأمير سلطان، مبنى 24', prefTime: '8:30 م', status: OrderStatus.ready, distance: '1.4 كم', eta: 'وصول تقريبي 8:26 م · 6 دقائق'),
+  Order(id: '1042', name: 'سارة عبدالله', initial: 'س', items: 'برجر مشوي × 2 · بطاطس · مشروب', address: 'حي الياسمين، شارع الأمير سلطان، مبنى 24', prefTime: '8:30 م', status: OrderStatus.ready, distance: '1.4 كم', eta: 'وصول تقريبي 8:26 م · 6 دقائق', deliverySlot: 'مساءً (٥ - ٨ م)'),
   Order(id: '1043', name: 'خالد الفهد', initial: 'خ', items: 'دجاج بروستد × 1 · سلطة · صوص', address: 'حي النرجس، طريق الملك عبدالعزيز، فيلا 8', prefTime: '8:50 م', status: OrderStatus.preparing, distance: '2.1 كم', eta: 'وصول تقريبي 8:44 م · 9 دقائق'),
-  Order(id: '1041', name: 'منى الحربي', initial: 'م', items: 'شاورما × 3', address: 'حي الملقا، شارع أنس بن مالك، مبنى 12', prefTime: '9:05 م', status: OrderStatus.enroute, distance: '3.0 كم', eta: 'وصول تقريبي 9:01 م · 12 دقيقة'),
+  Order(id: '1041', name: 'منى الحربي', initial: 'م', items: 'شاورما × 3', address: 'حي الملقا، شارع أنس بن مالك، مبنى 12', prefTime: '9:05 م', status: OrderStatus.enroute, distance: '3.0 كم', eta: 'وصول تقريبي 9:01 م · 12 دقيقة', deliverySlot: 'ليلًا (٨ - ١١ م)'),
 ];
 
 final _seedHistory = <HistoryItem>[

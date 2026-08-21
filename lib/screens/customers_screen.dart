@@ -93,15 +93,27 @@ class CustomersScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           _addressRow(o.address),
+          // الفترةُ تحت العنوان مباشرةً: العنوانُ «أين» والفترةُ «متى»، وعليهما
+          // معًا يبني المندوبُ ترتيبَ جولته. وحين لا تكون ثمّة فترةٌ تغيب هي
+          // ومسافتُها معًا فلا تبقى فجوة.
+          if (o.deliverySlot != null) ...[
+            const SizedBox(height: 10),
+            SlotChip(o.deliverySlot!),
+          ],
           const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('#${shortId(o.id)}', style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text('${t.preferredDelivery} ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
-              ),
+              // ونفسُ القاعدة على «التوصيل المفضّل»: كان يُطبع عنوانًا ثمّ لا
+              // شيء (الحقلُ فارغٌ في أغلب التوصيلات)، بخلاف بطاقتَي الانتظار
+              // والرئيسيّة اللتين تحرسانه.
+              if (o.prefTime.trim().isNotEmpty) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text('${t.preferredDelivery} ${o.prefTime}', textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 14),
@@ -165,6 +177,12 @@ class CustomersScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           _addressRow(o.address),
+          // وفي بطاقات الانتظار تحديدًا تنفع الفترةُ أكثر: هنا يوازن المندوبُ
+          // بين مَن ينتظره، والقائمةُ مرتّبةٌ بالمسافة لا بالوعد.
+          if (o.deliverySlot != null) ...[
+            const SizedBox(height: 10),
+            SlotChip(o.deliverySlot!),
+          ],
           const SizedBox(height: 6),
           Text(
             '#${shortId(o.id)}${o.prefTime.trim().isNotEmpty ? ' · ${t.preferredDelivery} ${o.prefTime}' : ''}',

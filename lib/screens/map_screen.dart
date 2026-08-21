@@ -148,6 +148,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final distance = order?.distance.trim() ?? '';
     final eta = order?.eta.trim() ?? '';
     final prefTime = order?.prefTime.trim() ?? '';
+    final slot = order?.deliverySlot; // فترةُ التوصيل المبيعة (0366) — غالبًا لا شيء
     final dest = (order?.lat != null && order?.lng != null) ? LatLng(order!.lat!, order.lng!) : null;
 
     return Scaffold(
@@ -309,6 +310,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ],
                     ),
                     const SizedBox(height: 4),
+                  ],
+                  // الفترةُ محاذيةٌ لنصّ العنوان (لا لأيقونته) كسطر المعرّف —
+                  // «أين» و«متى» في عمودٍ واحد. وتغيب كلَّها حين لا فترةَ بيعت.
+                  if (slot != null) ...[
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 26),
+                      child: SlotChip(slot),
+                    ),
+                    const SizedBox(height: 6),
                   ],
                   Padding(
                     padding: const EdgeInsetsDirectional.only(start: 26),

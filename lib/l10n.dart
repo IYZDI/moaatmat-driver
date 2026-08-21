@@ -42,6 +42,9 @@ class L {
   String get customer => _('العميل', 'Customer');
   String get driverFallback => _('مندوب', 'Driver');
   String get preferredDelivery => _('التوصيل المفضّل', 'Preferred time');
+  /// فترةُ التوصيل التي اشتراها العميل (0365/0366) — بنفس لفظ تطبيق العميل
+  /// حتى يتحدّث الطرفان عن الشيء نفسه بالاسم نفسه.
+  String get deliverySlot => _('فترة التوصيل', 'Delivery slot');
   String get today => _('اليوم', 'Today');
 
   // ---------- التنقّل ----------
