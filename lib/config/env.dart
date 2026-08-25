@@ -28,6 +28,19 @@ class Env {
   static const firebaseProjectId =
       String.fromEnvironment('FIREBASE_PROJECT_ID');
 
+// ---------- خرائط جوجل ----------
+  // ⛔ **لا يُثبَّت المفتاح في الشيفرة.** كان مكتوبًا نصًّا في
+  // `AndroidManifest.xml` و`AppDelegate.swift`، والمستودعُ منشور — فالمفتاحُ
+  // منشورٌ معه، ويُحمَّل استهلاكُه على حسابٍ واحد لمن وجده.
+  //
+  // ⚠ وغيابُه على iOS **انهيارٌ لا خريطةٌ رماديّة**: `GMSMapView` بلا
+  //   `provideAPIKey` تُسقط التطبيق بـGMSServicesException، وهو انهيارٌ
+  //   أصليٌّ لا يمرّ بمعالجات Flutter. فالحارسُ في Dart (`hasMaps`) هو ما
+  //   يمنع إنشاءها — لا فرعٌ في Swift.
+  static const mapsApiKey = String.fromEnvironment('MAPS_API_KEY');
+
+  static bool get hasMaps => mapsApiKey.trim().isNotEmpty;
+
   static bool get hasFirebase =>
       firebaseApiKey.isNotEmpty &&
       firebaseAppId.isNotEmpty &&

@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../l10n.dart';
 import '../models.dart';
+import '../config/env.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
@@ -156,6 +157,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       body: Stack(
         children: [
           // ===== خرائط Google =====
+          // 🚨 لا تُنشأ الخريطةُ بلا مفتاح. على iOS تُسقط `GMSMapView` التطبيقَ
+          //    بـGMSServicesException — انهيارٌ أصليٌّ لا يلتقطه Flutter ولا
+          //    يظهر في صفحة الأخطاء. وعلى أندرويد تخرج رماديّةً صامتة.
+          //    فالبديلُ هنا: لوحةٌ تقول السبب، والمندوبُ يكمل عمله بزرّ
+          //    «افتح في خرائط جوجل» أسفل الشاشة — وهو موجودٌ أصلًا.
+          if (!Env.hasMaps)
+            Positioned.fill(child: _MapUnavailable(dest: dest))
+          else
           Positioned.fill(
             child: GoogleMap(
               initialCameraPosition: CameraPosition(target: dest ?? _me ?? _riyadh, zoom: 14),
@@ -373,6 +382,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// بديلُ الخريطة حين لا مفتاح — لوحةٌ تقول السبب ولا تُخفيه.
+///
+/// ولماذا لا تُترك الشاشةُ فارغةً: المندوبُ يقف أمام مساحةٍ بيضاء ولا يعرف
+/// أعطلٌ في جهازه أم في الطلب، فيتّصل بالدعم. والعملُ لا يتوقّف: زرُّ «افتح
+/// في خرائط جوجل» أسفل الشاشة يعمل بلا مفتاحٍ أصلًا — فهو يفتح تطبيقَ
+/// الخرائط ولا يرسم خريطةً بنفسه.
+class _MapUnavailable extends StatelessWidget {
+  const _MapUnavailable({required this.dest});
+
+  /// الوجهةُ إن عُرفت — لا تُرسم هنا، وإنّما تُذكر لتطمين المندوب أنّ الطلب سليم.
+  final LatLng? dest;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.tealTint2,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.map_outlined, size: 46, color: AppColors.teal),
+          const SizedBox(height: 12),
+          const Text(
+            'الخريطة غير متاحة في هذا الإصدار',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            dest != null
+                ? 'لم يُضبط مفتاح الخرائط في هذا البناء. الوجهة محفوظة — استعمل «افتح في خرائط جوجل» أدناه.'
+                : 'لم يُضبط مفتاح الخرائط في هذا البناء. استعمل «افتح في خرائط جوجل» أدناه.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, height: 1.8, color: Colors.black54),
           ),
         ],
       ),

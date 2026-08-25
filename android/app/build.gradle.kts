@@ -79,6 +79,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // نفسُ آليّة تطبيق العميل حرفًا بحرف. وفارغًا يبقى البديلُ فارغًا
+        // فلا ينهار البناء — والخريطةُ وحدَها تغيب، ويقول التطبيقُ لماذا.
+        manifestPlaceholders["mapsApiKey"] = System.getenv("MAPS_API_KEY") ?: ""
     }
 
     signingConfigs {

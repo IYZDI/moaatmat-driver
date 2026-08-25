@@ -53,10 +53,15 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
           security find-identity -v -p codesigning
+      # مفتاحُ الخرائط يُكتب في Info.plist — لا مثبَّتًا في AppDelegate.
+      # وبلا المتغيّر يُحذف المدخل ولا يُكتب فارغًا، والسكربتُ يشرح.
+      - name: مفتاح الخرائط (Info.plist)
+        script: bash scripts/gen_ios_maps.sh
       - name: بناء IPA (release)
         script: |
           flutter build ipa --release \
             --build-number="$BUILD_NUMBER" \
+            --dart-define=MAPS_API_KEY="${MAPS_API_KEY:-}" \
             --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-}" \
             --dart-define=FIREBASE_DRIVER_APP_ID="${FIREBASE_DRIVER_APP_ID:-}" \
             --dart-define=FIREBASE_SENDER_ID="${FIREBASE_SENDER_ID:-}" \
@@ -118,8 +123,12 @@ workflows:
           esac
           # أسماءُ الـdart-define نسخةٌ حرفيّةٌ من سطر iOS أعلاه ومن lib/config/env.dart
           # — حرفٌ مختلفٌ هنا يعني مفتاحًا فارغًا في الحزمة بلا أيّ خطأ.
+          # MAPS_API_KEY يصل موضعين: gradle يقرؤه من البيئة لبديل البيان،
+          # وDart يقرؤه من dart-define للحارس. وحقنُه في أحدهما وحدَه يُنتج
+          # خريطةً بلا حارس أو حارسًا يُخفي خريطةً تعمل.
           flutter build apk --release \
             --build-number="${BUILD_NUMBER:-1}" \
+            --dart-define=MAPS_API_KEY="${MAPS_API_KEY:-}" \
             --dart-define=FIREBASE_API_KEY="${FIREBASE_API_KEY:-}" \
             --dart-define=FIREBASE_DRIVER_APP_ID="${FIREBASE_DRIVER_APP_ID:-}" \
             --dart-define=FIREBASE_SENDER_ID="${FIREBASE_SENDER_ID:-}" \

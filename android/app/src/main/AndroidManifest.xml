@@ -9,10 +9,13 @@
         android:label="Moaatmat Driver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- مفتاح خرائط Google (نفس مفتاح تطبيق العميل) -->
+        <!-- مفتاح خرائط جوجل — يُحقن من MAPS_API_KEY وقت البناء.
+             كان مكتوبًا هنا نصًّا والمستودعُ منشور، فالمفتاحُ منشورٌ معه
+             ويُحمَّل استهلاكُه على حسابٍ واحد لمن وجده.
+             وفارغًا: لا تُنشأ الخريطةُ أصلًا — الحارس في Env.hasMaps. -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyCzYsVCdvxN-F3RmfC1p-dfFW8SRB1YgH0" />
+            android:value="${mapsApiKey}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
