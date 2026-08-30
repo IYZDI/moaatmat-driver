@@ -304,22 +304,23 @@ class SupabaseDriverRepository implements DriverRepository {
   Stream<IncomingMessage> get incomingMessages => _msgCtrl.stream;
 
   @override
-  void syncMessageChannels(Set<String> orderIds) {
+  void syncMessageChannels(Set<String> deliveryIds) {
     // إلغاء قنوات الطلبات المنتهية
     for (final id in _msgChannels.keys.toList()) {
-      if (!orderIds.contains(id)) {
+      if (!deliveryIds.contains(id)) {
         _db.removeChannel(_msgChannels.remove(id)!);
       }
     }
     // الاشتراك بقنوات الطلبات الجديدة
-    for (final id in orderIds) {
+    for (final id in deliveryIds) {
       if (_msgChannels.containsKey(id)) continue;
-      final ch = _db.channel('order-chat:$id');
+      // 0434: القاعدةُ تبثّ على القناتين معًا، وهذه تعمل للطلب وللاشتراك.
+      final ch = _db.channel('delivery-chat:$id');
       ch.onBroadcast(
         event: 'new-message',
         callback: (payload) {
           _msgCtrl.add(IncomingMessage(
-            orderId: (payload['order_id'] ?? id).toString(),
+            deliveryId: (payload['delivery_id'] ?? id).toString(),
             sender: (payload['sender'] ?? '') as String? ?? '',
             body: (payload['body'] ?? '') as String? ?? '',
           ));

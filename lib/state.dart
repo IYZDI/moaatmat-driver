@@ -264,7 +264,7 @@ class DriverNotifier extends Notifier<DriverData> {
     // نجد التوصيلة صاحبة هذا الطلب
     Order? order;
     for (final o in state.orders) {
-      if (o.orderId == msg.orderId) {
+      if (o.id == msg.deliveryId) {
         order = o;
         break;
       }

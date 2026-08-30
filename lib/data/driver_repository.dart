@@ -17,11 +17,13 @@ class OrgInfo {
 }
 
 /// رسالة محادثة واردة لحظيًّا (بثّ realtime.send من القاعدة — هجرة 0143).
+// ⚠ المفتاحُ **توصيلةٌ لا طلب**: توصيلةُ الاشتراك بلا `order_id`، فكانت
+//   تُستثنى من القنوات كلِّها. والقاعدةُ تبثّ على `delivery-chat:<id>` منذ 0434.
 class IncomingMessage {
-  final String orderId;
+  final String deliveryId;
   final String sender; // 'customer' | 'driver'
   final String body;
-  const IncomingMessage({required this.orderId, required this.sender, required this.body});
+  const IncomingMessage({required this.deliveryId, required this.sender, required this.body});
 }
 
 /// عقد الوصول لبيانات المندوب — نموذج الرمز (session_token). تنفيذان: تجريبي
@@ -71,7 +73,7 @@ abstract class DriverRepository {
   Future<OrgInfo?> orgInfo();
 
   /// يزامن الاشتراك اللحظي بقنوات محادثات الطلبات المُمرّرة (`order-chat:<id>`).
-  void syncMessageChannels(Set<String> orderIds);
+  void syncMessageChannels(Set<String> deliveryIds);
 
   /// رسائل واردة لحظيًّا من قنوات المحادثة المُزامنة.
   Stream<IncomingMessage> get incomingMessages;
