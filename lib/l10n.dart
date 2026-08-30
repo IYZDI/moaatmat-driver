@@ -120,6 +120,9 @@ class L {
   /// حين تكون التوصيلةُ «في الطريق» سلفًا: يفتح الخريطةَ ولا يكتب حالةً.
   String get continueDelivery => _('متابعة التوصيل', 'Continue delivery');
   String calling(String name) => _('جارٍ الاتصال بـ $name', 'Calling $name');
+  String get latestDeliveries => _('آخر التوصيلات', 'Latest deliveries');
+  String get noPhone => _('لا رقم جوّال مسجَّل لهذا العميل', 'No phone number on file for this customer');
+  String get callFailed => _('تعذّر فتح تطبيق الهاتف', 'Could not open the phone app');
 
   // ---------- المحادثة ----------
   String orderNo(String id) => _('طلب #$id', 'Order #$id');

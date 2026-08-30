@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -49,7 +50,7 @@ class CustomersScreen extends ConsumerWidget {
                     child: Center(child: Text(t.allDeliveriesDone, style: const TextStyle(color: AppColors.muted))),
                   ),
                 for (var i = 0; i < orders.length; i++) ...[
-                  i == 0 ? _nextCard(context, ref, t, orders[i]) : _waitingCard(t, orders[i]),
+                  i == 0 ? _nextCard(context, ref, t, orders[i]) : _waitingCard(context, t, orders[i]),
                   const SizedBox(height: 14),
                 ],
               ],
@@ -119,7 +120,7 @@ class CustomersScreen extends ConsumerWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _snack(context, t.calling(o.name))),
+              SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _call(context, t, o)),
               const SizedBox(width: 9),
               SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.push('/map/${o.id}')),
               const SizedBox(width: 9),
@@ -159,7 +160,23 @@ class CustomersScreen extends ConsumerWidget {
     );
   }
 
-  Widget _waitingCard(L t, Order o) {
+  /// 🚨 كانت هذه البطاقةُ **جامدةً تمامًا**: لا نقرَ ولا زرَّ ولا وجهة. فمن
+  ///   عنده خمسُ توصيلاتٍ لا يفتح إلّا الأولى، وما عداها أربعُ بطاقاتٍ تُقرأ
+  ///   ولا تُلمس — لا خريطةَ ولا اتّصالَ ولا محادثة. ونظيرتُها في الويب تحمل
+  ///   الأزرارَ الثلاثة.
+  ///
+  /// ⚠ والنقرُ على البطاقة كلِّها إلى الخريطة، لا زرٌّ صغيرٌ وحدَه: المندوبُ
+  ///   يقودُ ويستعمل إبهامَه، ومساحةُ اللمس هي الفرقُ بين أداةٍ تُستعمل وأخرى
+  ///   تُلعن.
+  Widget _waitingCard(BuildContext context, L t, Order o) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => context.push('/map/${o.id}'),
+      child: _waitingBody(context, t, o),
+    );
+  }
+
+  Widget _waitingBody(BuildContext context, L t, Order o) {
     return AppCard(
       radius: 20,
       padding: const EdgeInsets.all(18),
@@ -188,9 +205,44 @@ class CustomersScreen extends ConsumerWidget {
             '#${shortId(o.id)}${o.prefTime.trim().isNotEmpty ? ' · ${t.preferredDelivery} ${o.prefTime}' : ''}',
             style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
           ),
+          // الأزرارُ الثلاثةُ نفسُها التي في بطاقة «التالية» — لا سببَ لحرمان
+          // بقيّةِ التوصيلات منها. وزرُّ الهاتف يُخفى حين لا رقمَ مسجَّل.
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              if ((o.phone ?? '').trim().isNotEmpty) ...[
+                SquareIconButton(icon: Icons.phone_outlined, teal: true, onTap: () => _call(context, t, o)),
+                const SizedBox(width: 9),
+              ],
+              SquareIconButton(icon: Icons.location_on_outlined, onTap: () => context.push('/map/${o.id}')),
+              const SizedBox(width: 9),
+              SquareIconButton(icon: Icons.chat_bubble_outline, onTap: () => context.push('/chat/${o.id}')),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  /// 🚨 كان هذا الزرُّ يعرض «جارٍ الاتصال بفلان» **ولا يتّصل**. والرقمُ كان
+  ///   يصل من `driver_orders.customer_phone` ولا يُقرأ أصلًا في المستودع.
+  ///   فمندوبٌ يقف أمام بابٍ مغلقٍ لا يملك وسيلةً للوصول إلى صاحبه — وهو
+  ///   أوّلُ ما يحتاجه في الميدان. ونظيرُه في الويب يتّصل فعلًا.
+  ///
+  /// ⚠ ونفرّق بين «لا رقمَ مسجَّل» و«تعذّر فتح الهاتف»: الأولى بيانٌ ناقصٌ
+  ///   يُعالَج في اللوحة، والثانيةُ عطلٌ في الجهاز. ورسالةٌ واحدةٌ لهما تُرسل
+  ///   المندوبَ يبحث في المكان الخطأ.
+  Future<void> _call(BuildContext context, L t, Order o) async {
+    final raw = (o.phone ?? '').trim();
+    if (raw.isEmpty) {
+      _snack(context, t.noPhone);
+      return;
+    }
+    // `tel:` لا يقبل الفراغَ ولا الشرطات في بعض الأجهزة.
+    final uri = Uri.parse('tel:${raw.replaceAll(RegExp(r'[^0-9+]'), '')}');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (context.mounted) _snack(context, t.callFailed);
+    }
   }
 
   void _snack(BuildContext context, String msg) {

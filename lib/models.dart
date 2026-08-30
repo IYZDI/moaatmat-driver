@@ -81,6 +81,17 @@ class Order {
   ///   حالةٌ واحدةٌ تفحصها: موجودةٌ فتُعرض، أو غائبةٌ فلا يُعرض عنها شيء.
   final String? deliverySlot;
 
+  /// جوّالُ العميل — عمود `customer_phone` من `driver_orders`.
+  ///
+  /// 🚨 كانت الدالّةُ تُعيده منذ كُتبت **ولا يقرؤه أحد**، وزرّا الهاتف في
+  ///   التطبيق يعرضان رسالةً («جارٍ الاتصال بفلان») ولا يتّصلان. فمندوبٌ
+  ///   يقف أمام بابٍ مغلقٍ لا يملك وسيلةً للوصول إلى صاحبه — وهو أوّلُ ما
+  ///   يحتاجه في الميدان. ونظيرُه في الويب يتّصل فعلًا (parts.jsx).
+  ///
+  /// ⚠ و`null` واردةٌ: عنوانٌ بلا رقمٍ مسجَّل. فالزرُّ يُخفى عندها بدل أن
+  ///   يَعِد بما لا يقع.
+  final String? phone;
+
   const Order({
     required this.id,
     this.orderId,
@@ -92,6 +103,7 @@ class Order {
     required this.status,
     this.distance = '',
     this.eta = '',
+    this.phone,
     this.lat,
     this.lng,
     this.deliverySlot,
@@ -134,5 +146,17 @@ class HistoryItem {
   final String name;
   final String sub;
   final bool ok;
-  const HistoryItem({required this.id, required this.name, required this.sub, required this.ok});
+
+  /// وقتُ التسليم — كان يُقرأ من `driver_history.delivered_at` ثمّ **يُرمى**
+  /// بعد تنسيقه نصًّا. فبقي عدّادُ «هذا الشهر» في الشاشة سلسلةً حرفيّةً
+  /// مكتوبةً في الشيفرة: `'142'`. رقمٌ لا يقرأ شيئًا ولا يتغيّر لأحد.
+  final DateTime? deliveredAt;
+
+  const HistoryItem({
+    required this.id,
+    required this.name,
+    required this.sub,
+    required this.ok,
+    this.deliveredAt,
+  });
 }

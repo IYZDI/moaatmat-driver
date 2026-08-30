@@ -32,7 +32,11 @@ class HistoryScreen extends ConsumerWidget {
                     children: [
                       _stat('${data.delivered}', t.today),
                       const SizedBox(width: 10),
-                      _stat('142', t.thisMonth),
+                      // 🚨 كان `_stat('142', …)` — سلسلةً حرفيّةً مكتوبةً في
+                      //   الشيفرة. رقمٌ ثابتٌ يراه كلُّ مندوبٍ في كلّ شهر،
+                      //   ولا يتغيّر مهما وصّل. يُحسب الآن من `deliveredAt`
+                      //   الذي كان يُقرأ من الخادم ثمّ يُرمى.
+                      _stat('${_monthCount(data.history)}', t.thisMonth),
                     ],
                   ),
                 ),
@@ -43,7 +47,10 @@ class HistoryScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
               children: [
-                Text(t.today, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
+                // 🚨 كان "t.today" فوق قائمةٍ ليست لليوم: `driver_history`
+                //   تُرجع **آخر مئة** توصيلةٍ مسلَّمةٍ أو متعذّرة، مرتَّبةً
+                //   تنازليًّا — لا توصيلاتِ اليوم. عنوانٌ يكذب على ما تحته.
+                Text(t.latestDeliveries, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
                 const SizedBox(height: 10),
                 for (final h in data.history) ...[
                   _item(t, h),
@@ -85,6 +92,24 @@ class HistoryScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// عددُ ما سُلّم في الشهر الجاري — من `deliveredAt` لا من رقمٍ ثابت.
+  ///
+  /// ⚠ ويُعدّ **المسلَّمُ وحدَه**: `driver_history` تُرجع المتعذّرةَ معه،
+  ///   وعدُّها في «هذا الشهر» يُطري المندوبَ بما لم يفعل.
+  ///
+  /// ⚠ وحدُّ المئة في الخادم يعني أنّ الرقمَ أدنى حدٍّ لا مطلق: من تجاوز مئةَ
+  ///   توصيلةٍ في الشهر يُعرض له ما بلغه السجلّ. وهو أصدقُ من «١٤٢» الثابتة.
+  int _monthCount(List<HistoryItem> history) {
+    final now = DateTime.now();
+    return history
+        .where((h) =>
+            h.ok &&
+            h.deliveredAt != null &&
+            h.deliveredAt!.year == now.year &&
+            h.deliveredAt!.month == now.month)
+        .length;
   }
 
   Widget _stat(String num, String label) {

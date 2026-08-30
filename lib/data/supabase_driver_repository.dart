@@ -171,6 +171,10 @@ class SupabaseDriverRepository implements DriverRepository {
       // والفراغُ يُوحَّد إلى null هنا مرّةً واحدة — لا نتركه سلسلةً فارغةً
       // تتكرّر الحراسةُ عليها في كلّ شاشة.
       final slot = ((m['delivery_slot'] ?? '') as String? ?? '').trim();
+      // ⛔ `customer_phone` تُعيده `driver_orders` منذ كُتبت ولم يقرأه أحد —
+      //   فكان زرّا الهاتف يعرضان رسالةً ولا يتّصلان. والفراغُ يُوحَّد إلى
+      //   null هنا مرّةً واحدة كما فُعل بـ`delivery_slot`.
+      final phone = ((m['customer_phone'] ?? '') as String? ?? '').trim();
       return Order(
         id: (m['delivery_id'] ?? '').toString(),
         orderId: m['order_id']?.toString(),
@@ -184,6 +188,7 @@ class SupabaseDriverRepository implements DriverRepository {
         lat: (m['lat'] as num?)?.toDouble(),
         lng: (m['lng'] as num?)?.toDouble(),
         deliverySlot: slot.isEmpty ? null : slot,
+        phone: phone.isEmpty ? null : phone,
       );
     }).toList();
   }
@@ -215,6 +220,7 @@ class SupabaseDriverRepository implements DriverRepository {
         name: (m['customer_name'] ?? '') as String? ?? '',
         sub: sub,
         ok: ok,
+        deliveredAt: at, // كان يُحسب ثمّ يُرمى — وعليه يقوم عدّادُ الشهر.
       );
     }).toList();
   }
