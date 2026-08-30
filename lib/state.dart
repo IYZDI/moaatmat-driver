@@ -259,7 +259,7 @@ class DriverNotifier extends Notifier<DriverData> {
     }
   }
 
-  void _onIncomingMessage(IncomingMessage msg) {
+  Future<void> _onIncomingMessage(IncomingMessage msg) async {
     if (msg.sender != 'customer') return; // رسائل المندوب نفسه لا تُشعِر
     // نجد التوصيلة صاحبة هذا الطلب
     Order? order;
@@ -271,11 +271,25 @@ class DriverNotifier extends Notifier<DriverData> {
     }
     if (order == null) return;
     // حدّث رسائل المحادثة (سواء كانت مفتوحة أو لا — لتكون جاهزة عند الفتح)
-    loadMessages(order.id);
+    // ⛔ ويُنتظَر الآن: نصُّ الإشعار يُقرأ من هذه القائمة لا من البثّ.
+    await loadMessages(order.id);
     // أشعر المندوب فقط إن لم تكن محادثة هذا الطلب مفتوحة أمامه الآن
     if (_openChatId != order.id) {
       final t = ref.read(stringsProvider);
-      NotificationsService.instance.showMessage(title: t.messageFrom(order.name), body: msg.body);
+      // 🚨 **النصُّ من المسار المحروس لا من الجرس** (0457). كان يُقرأ من
+      //   `msg.body` — أي من بثٍّ على قناةٍ **عامّة** يسمعه أيُّ حاملٍ للمفتاح
+      //   العلنيّ. فأُفرغت الحمولةُ من النصّ وبقي الجرسُ (مَن ومتى)، ويُقرأ
+      //   النصُّ من `driver_delivery_messages` المحروسةِ برمز المندوب — وهي
+      //   محمَّلةٌ للتوّ في السطر أعلاه، فلا نداءَ زائد.
+      final loaded = state.messages[order.id] ?? const <ChatMessage>[];
+      ChatMessage? last;
+      for (final m in loaded.reversed) {
+        if (!m.outgoing) { last = m; break; }
+      }
+      NotificationsService.instance.showMessage(
+        title: t.messageFrom(order.name),
+        body: last?.text ?? t.newMessage,
+      );
     }
   }
 

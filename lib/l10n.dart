@@ -129,6 +129,8 @@ class L {
   String get onlineNow => _('متصلة الآن', 'Online now');
   String get typeMessage => _('اكتب رسالة…', 'Type a message…');
   String messageFrom(String name) => _('رسالة من $name', 'Message from $name');
+  /// نصُّ الإشعار حين لا يُقرأ المتنُ بعد — البثُّ صار جرسًا بلا نصّ (0457).
+  String get newMessage => _('رسالة جديدة', 'New message');
 
   // ---------- الخريطة ----------
   String get broadcastingLocation => _('يبثّ موقعك للعميل', 'Broadcasting your location');
