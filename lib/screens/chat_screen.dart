@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../l10n.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -113,7 +114,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                       InkWell(
-                        onTap: () => _snack(t.calling(name)),
+                        // 🚨 كان `_snack(t.calling(name))` وحدَه: يقول «جارٍ
+                        //   الاتّصال» ولا يتّصل. وهو أظهرُ زرٍّ في الشاشة التي
+                        //   يصل إليها المندوبُ **حين لا يردّ العميل** — أي
+                        //   وعدٌ كاذبٌ في اللحظة التي يحتاج فيها الاتّصالَ حقًّا.
+                        //   والرقمُ متاحٌ في `order.phone` (يملؤه المستودع من
+                        //   `driver_orders.customer_phone`). أُصلح في شاشة
+                        //   العملاء وبقي هنا.
+                        onTap: () => _call(t, order),
                         borderRadius: BorderRadius.circular(11),
                         child: Container(
                           width: 38,
@@ -240,6 +248,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+  }
+
+  /// نفسُ منطق `customers_screen._call` حرفًا — ثلاثُ حالاتٍ لا واحدة:
+  /// لا رقمَ مسجَّل · فشلَ فتحُ المُتّصِل · أو يفتح فعلًا.
+  Future<void> _call(L t, Order? order) async {
+    final raw = (order?.phone ?? '').trim();
+    if (raw.isEmpty) {
+      _snack(t.noPhone);
+      return;
+    }
+    // `tel:` لا يقبل الفراغَ ولا الشرطات في بعض الأجهزة.
+    final uri = Uri.parse('tel:${raw.replaceAll(RegExp(r'[^0-9+]'), '')}');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) _snack(t.callFailed);
+    }
   }
 
   void _snack(String msg) {

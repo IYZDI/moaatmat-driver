@@ -297,10 +297,19 @@ class DriverNotifier extends Notifier<DriverData> {
         delivered: stats.delivered,
         remaining: stats.remaining,
       );
-      // زامن قنوات المحادثة اللحظية مع الطلبات النشطة (التي لها order_id)
+      // 🚨 **كان يُمرَّر `order_id` والمشتَرَكُ به `delivery-chat:` — فلا رسالةَ
+      //   حيّةٌ تصل أبدًا.** 0434 نقلت البثَّ إلى `delivery-chat:<delivery_id>`
+      //   وأصلح المستودعُ نصفَه (سطر الاشتراك في `supabase_driver_repository`)
+      //   وبقي هذا النصفُ على المعرّف القديم. فالتطبيقُ يشترك في قناةٍ لا يبثّ
+      //   عليها أحد: `NotificationsService.showMessage` شيفرةٌ ميّتة، والمندوبُ
+      //   لا يعلم برسالةِ عميلٍ إلّا إن فتح المحادثةَ واعتمد على استطلاع ٨ ثوانٍ.
+      //
+      // ⚠ وشرطُ `orderId != null` كان يُسقط **توصيلاتِ الاشتراك كلَّها** (٩ من
+      //   ٢٤ حيًّا) — وهي جوهرُ المنتج لا حالتُه النادرة. و`o.id` هو معرّفُ
+      //   التوصيلة، موجودٌ دائمًا، وهو ما تبثّ عليه القاعدة.
       _repo!.syncMessageChannels({
         for (final o in orders)
-          if (o.active && o.orderId != null) o.orderId!,
+          if (o.active) o.id,
       });
     } catch (e) {
       if (e.toString().contains('جلسة غير صالحة')) {
