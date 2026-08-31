@@ -31,6 +31,17 @@ class SupabaseDriverRepository implements DriverRepository {
 
   String _initial(String name) => name.trim().isEmpty ? '؟' : name.trim()[0];
 
+  /// «١٫٤ كم» من `distance_km` — والفراغُ حين لا تُحسب.
+  ///
+  /// ⚠ والفراغُ حالةٌ حقيقيّةٌ لا استثناء: الفرعُ قد يكون بلا إحداثيّات، أو
+  ///   العنوانُ بلا موقع — فتعود `null`. والشاشةُ تحرس الفراغَ سلفًا، فلا
+  ///   يُخترع رقمٌ ولا يُكتب «٠ كم» عن مسافةٍ مجهولة.
+  String _distanceLabel(dynamic km) {
+    final v = (km as num?)?.toDouble();
+    if (v == null || !v.isFinite || v < 0) return '';
+    return '${v.toStringAsFixed(1)} كم';
+  }
+
   /// يحوّل الجوال إلى E.164 السعودية (+9665XXXXXXXX).
   String _e164(String raw) {
     var d = raw.replaceAll(RegExp(r'\D'), '');
@@ -189,6 +200,12 @@ class SupabaseDriverRepository implements DriverRepository {
         lng: (m['lng'] as num?)?.toDouble(),
         deliverySlot: slot.isEmpty ? null : slot,
         phone: phone.isEmpty ? null : phone,
+        // ⛔ **المسافةُ كانت تُحسب في الخادم وتُرمى هنا.** `driver_orders` تُعيد
+        //   `distance_km` (مسافةَ الفرع إلى الوجهة) **وترتّب القائمةَ بها** —
+        //   ولا يقرؤها أحد، فتبقى `Order.distance` فارغةً في الوضع المتّصل.
+        //   فالمندوبُ يرى قائمةً مرتّبةً بالقرب ولا يرى القربَ نفسَه، ولا
+        //   يعرف أيَقبل التوصيلةَ التاليةَ أم لا.
+        distance: _distanceLabel(m['distance_km']),
       );
     }).toList();
   }

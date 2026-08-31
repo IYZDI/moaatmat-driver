@@ -338,6 +338,30 @@ class DriverNotifier extends Notifier<DriverData> {
   }
 
   // ---------- الخطوات ----------
+
+  /// 🚨 **حارسُ الجلسة الميّتة كان في `refresh()` وحدَها.**
+  ///
+  /// فالمسارُ المباشر — «استلمت» و«في الطريق» و«تعذّر التسليم» — يرمي من
+  /// المستودع مباشرةً إلى الشاشة، فتعرض «تعذّر الحفظ» عامًّا. والمندوبُ الذي
+  /// أُبطلت جلستُه (خروجٌ من جهازٍ آخر، أو تعطيلُ حسابه من صفحة المناديب)
+  /// يبقى في التطبيق يضغط ويُردّ، ولا يُخرَج ولا يُقال له لماذا.
+  ///
+  /// و`refresh()` تُنادى بعد كلّ خطوةٍ ناجحة — فالحارسُ هناك لا يبلغه أصلًا
+  /// حين تفشل الخطوةُ نفسُها.
+  ///
+  /// ⚠ والمقياسُ نصٌّ واحدٌ لأنّ 0472 وحّدت جملةَ الخادم: كانت
+  ///   `driver_set_status` وحدَها تقول غيرَها فلا تُطابق.
+  Future<T> _guardSession<T>(Future<T> Function() body) async {
+    try {
+      return await body();
+    } catch (e) {
+      if (e.toString().contains('جلسة غير صالحة')) {
+        await logout();
+      }
+      rethrow; // الشاشةُ تعرض رسالتَها، والخروجُ وقع
+    }
+  }
+
   void _setStatusMock(String id, OrderStatus status) {
     state = state.copyWith(orders: [
       for (final o in state.orders) o.id == id ? o.copyWith(status: status) : o,
@@ -347,7 +371,7 @@ class DriverNotifier extends Notifier<DriverData> {
   Future<void> confirmPickup(String id) async {
     if (connected) {
       _setStatusMock(id, OrderStatus.picked); // انعكاس فوري في الواجهة
-      await _repo!.confirmPickup(id);
+      await _guardSession(() => _repo!.confirmPickup(id));
       await refresh(); // مزامنة حقيقة الخادم (0144 يعيد 'picked')
     } else {
       _setStatusMock(id, OrderStatus.picked);
@@ -373,7 +397,7 @@ class DriverNotifier extends Notifier<DriverData> {
     }
     if (connected) {
       for (final id in pending) {
-        await _repo!.confirmPickup(id);
+        await _guardSession(() => _repo!.confirmPickup(id));
       }
       await refresh(); // مزامنةٌ واحدةٌ بعد الكلّ لا بعد كلّ واحد
     }
@@ -383,7 +407,7 @@ class DriverNotifier extends Notifier<DriverData> {
   Future<void> confirmEnroute(String id) async {
     if (connected) {
       _setStatusMock(id, OrderStatus.enroute); // انعكاس فوري في الواجهة
-      await _repo!.confirmEnroute(id);
+      await _guardSession(() => _repo!.confirmEnroute(id));
       await refresh();
     } else {
       _setStatusMock(id, OrderStatus.enroute);
@@ -393,7 +417,7 @@ class DriverNotifier extends Notifier<DriverData> {
   /// تأكيد التسليم مع صورة الإثبات (تُرفع عبر دالة الحافة في الوضع المتّصل).
   Future<void> confirmDelivered(String id, List<int> photoBytes) async {
     if (connected) {
-      await _repo!.confirmDelivered(id, photoBytes);
+      await _guardSession(() => _repo!.confirmDelivered(id, photoBytes));
       await refresh();
     } else {
       _completeMock(id, ok: true, sub: 'سُلّم ${nowTime()}');
@@ -402,7 +426,7 @@ class DriverNotifier extends Notifier<DriverData> {
 
   Future<void> markFailed(String id, String reason) async {
     if (connected) {
-      await _repo!.markFailed(id, reason);
+      await _guardSession(() => _repo!.markFailed(id, reason));
       await refresh();
     } else {
       _completeMock(id, ok: false, sub: reason);
