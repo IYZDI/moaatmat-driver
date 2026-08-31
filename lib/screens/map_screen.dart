@@ -11,8 +11,6 @@ import '../config/env.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../state.dart';
-import '../data/repository.dart';
-import '../data/location_broadcaster.dart';
 
 /// شاشة الملاحة: خرائط Google تعرض موقع المندوب الحيّ (النقطة الزرقاء)
 /// ودبوس وجهة العميل، مع بثّ الموقع للعميل وزرّ تسليم واضح.
@@ -28,8 +26,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   static const _riyadh = LatLng(24.7136, 46.6753);
 
   GoogleMapController? _map;
-  LocationBroadcaster? _broadcaster;
-  bool _broadcasting = false;
 
   StreamSubscription<Position>? _posSub;
   LatLng? _me;
@@ -41,15 +37,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   void initState() {
     super.initState();
-    // في الوضع المتّصل نبثّ موقع المندوب طوال وجوده على شاشة الملاحة.
-    final repo = ref.read(driverRepositoryProvider);
-    if (repo != null) {
-      _broadcaster = LocationBroadcaster(repo);
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final ok = await _broadcaster!.start();
-        if (mounted) setState(() => _broadcasting = ok);
-      });
-    }
+    // 🚨 **لم تعد هذه الشاشةُ تملك البثّ.** كان هنا `LocationBroadcaster` يُنشأ
+    //   في `initState` ويموت في `dispose` — أي أنّ موقعَ المندوب يُبثّ «طوال
+    //   وجوده على شاشة الملاحة» كما كان مكتوبًا. فسهمُ الرجوع إلى القائمة، أو
+    //   فتحُ المحادثة، يجمّد النقطةَ على خريطة العميل والطلبُ ما زال «في
+    //   الطريق». المالكُ الآن `DriverNotifier` وشرطُه **وجودُ توصيلةٍ مفتوحة**
+    //   لا شاشةٍ مفتوحة. وهذه الشاشةُ تقرأ الحالةَ لتعرضها ولا تتحكّم بها.
     _watchMyLocation();
   }
 
@@ -124,7 +117,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   void dispose() {
     _posSub?.cancel();
-    _broadcaster?.stop();
     super.dispose();
   }
 
@@ -252,7 +244,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    if (_broadcasting)
+                    if (ref.watch(driverProvider).broadcasting)
                       Container(
                         margin: const EdgeInsets.fromLTRB(18, 8, 0, 0),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

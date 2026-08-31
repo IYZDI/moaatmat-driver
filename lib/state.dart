@@ -4,6 +4,7 @@ import 'l10n.dart';
 import 'models.dart';
 import 'data/repository.dart';
 import 'data/driver_repository.dart';
+import 'data/location_broadcaster.dart';
 import 'data/notifications_service.dart';
 import 'data/push_service.dart';
 
@@ -54,6 +55,15 @@ class DriverData {
   final int delivered;
   final int remaining;
 
+  /// هل يُبثّ موقعُ المندوب فعلًا الآن؟
+  ///
+  /// ⚠ **في الحالة لا في المزوّد.** أوّلُ صياغةٍ جعلتها قارئةً على
+  ///   `DriverNotifier` تعود إلى `_broadcaster?.active` — و
+  ///   `ref.watch(driverProvider.notifier)` لا يُعيد البناءَ حين يتغيّر حقلٌ
+  ///   خارج الحالة، فتبقى الشارةُ على ما كانت. وشارةٌ تقول «يُبثّ موقعك» وهو
+  ///   لا يُبثّ أسوأُ من غيابها: المندوبُ يطمئنّ إلى شيءٍ لا يقع.
+  final bool broadcasting;
+
   const DriverData({
     required this.authed,
     required this.name,
@@ -65,6 +75,7 @@ class DriverData {
     required this.total,
     required this.delivered,
     required this.remaining,
+    this.broadcasting = false,
   });
 
   Order? orderById(String id) {
@@ -85,6 +96,7 @@ class DriverData {
     int? total,
     int? delivered,
     int? remaining,
+    bool? broadcasting,
   }) =>
       DriverData(
         authed: authed ?? this.authed,
@@ -97,6 +109,7 @@ class DriverData {
         total: total ?? this.total,
         delivered: delivered ?? this.delivered,
         remaining: remaining ?? this.remaining,
+        broadcasting: broadcasting ?? this.broadcasting,
       );
 }
 
@@ -153,11 +166,44 @@ class DriverNotifier extends Notifier<DriverData> {
   String? _openChatId;
   void setOpenChat(String? deliveryId) => _openChatId = deliveryId;
 
+  /// باثُّ الموقع — **يملكه هذا المزوّدُ لا شاشةُ الخريطة**، فيعيش ما دامت
+  /// للمندوب توصيلةٌ مفتوحة أيًّا كانت الشاشةُ المعروضة.
+  LocationBroadcaster? _broadcaster;
+
+  /// يبدأ البثَّ عند وجود توصيلةٍ مفتوحة ويوقفه عند خلوّها، ثمّ **يكتب الحقيقةَ
+  /// في الحالة** — لا النيّة.
+  ///
+  /// ⚠ ويُطفأ عند الخلوّ **صراحةً**: بثٌّ يستمرّ بعد آخر تسليمٍ يستنزف بطّاريّةَ
+  ///   المندوب ويُبقي مؤشّرَ الموقع مضاءً على هاتفه بلا سبب — وهو ما يجعل
+  ///   المناديبَ يمنعون الإذنَ أصلًا، فنخسر البثَّ في الحالة التي نريده فيها.
+  Future<void> _syncLocationBroadcast(List<Order> orders) async {
+    if (!connected) return;
+    final wanted = orders.any((o) => o.active);
+    if (wanted) {
+      _broadcaster ??= LocationBroadcaster(_repo!);
+      if (!_broadcaster!.active) {
+        // الإذنُ قد يُرفض — لا يُسقط ذلك التحديثَ ولا يُعطّل شيئًا آخر.
+        try {
+          await _broadcaster!.start();
+        } catch (_) {}
+      }
+    } else if (_broadcaster?.active ?? false) {
+      await _broadcaster!.stop();
+    }
+    // ⚠ تُقرأ `active` **بعد** المحاولة لا قبلها: `start()` تُرجع false حين
+    //   يُرفض الإذنُ أو تُطفأ خدمةُ الموقع، وحينها لا شارةَ تُعرض.
+    final on = _broadcaster?.active ?? false;
+    if (on != state.broadcasting) {
+      state = state.copyWith(broadcasting: on);
+    }
+  }
+
   @override
   DriverData build() {
     ref.onDispose(() {
       _ordersSub?.cancel();
       _msgSub?.cancel();
+      _broadcaster?.stop();
     });
     if (connected) {
       _restore(); // استعادة الجلسة المحفوظة (غير متزامنة)
@@ -231,6 +277,9 @@ class DriverNotifier extends Notifier<DriverData> {
   Future<void> logout() async {
     await _ordersSub?.cancel();
     _ordersSub = null;
+    // البثُّ يتوقّف مع الجلسة: رمزٌ أُبطل لا يبقى يبثّ موقعَ صاحبه.
+    await _broadcaster?.stop();
+    _broadcaster = null;
     if (connected) {
       await _repo!.signOut();
       state = _connectedInitial();
@@ -329,6 +378,20 @@ class DriverNotifier extends Notifier<DriverData> {
         for (final o in orders)
           if (o.active) o.id,
       });
+
+      // 🚨 **بثُّ الموقع مربوطٌ بوجود توصيلةٍ مفتوحة، لا بشاشةٍ مفتوحة.**
+      //   كان `LocationBroadcaster` يُنشأ في `initState` لشاشة الخريطة ويموت
+      //   في `dispose`ها — فيكفي أن يضغط المندوبُ سهمَ الرجوع ليرى بقيّةَ
+      //   القائمة، أو يفتحَ المحادثةَ من التبويب السفليّ، حتّى يتوقّف البثُّ
+      //   وتتجمّد النقطةُ على خريطة العميل عند آخر موضع — **والطلبُ ما زال
+      //   معلَّمًا «في الطريق»**. فيرى العميلُ مندوبًا واقفًا لا يتحرّك، وهو
+      //   يتحرّك.
+      //
+      //   والمنصّةُ كانت جاهزةً للخلفيّة أصلًا (إذنُ iOS «دائمًا» مع
+      //   `allowBackgroundLocationUpdates`، وخدمةُ أندرويد الأماميّة داخل
+      //   `LocationBroadcaster`) — لم يكن ينقص إلّا **مالكٌ يعيش أطولَ من
+      //   الشاشة**. وهذا هو: `DriverNotifier` مقيمٌ في نطاق التطبيق.
+      await _syncLocationBroadcast(orders);
     } catch (e) {
       if (e.toString().contains('جلسة غير صالحة')) {
         await logout();
