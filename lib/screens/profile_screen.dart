@@ -8,6 +8,7 @@ import '../widgets.dart';
 import '../state.dart';
 import '../config/env.dart';
 import '../data/push_service.dart';
+import '../data/repository.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -17,6 +18,50 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _notif = true;
+  bool _notifBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // المفتاحُ يعرض التفضيلَ المحفوظ لا قيمةً ثابتة.
+    PushService.isEnabled().then((v) {
+      if (mounted) setState(() => _notif = v);
+    });
+  }
+
+  /// تشغيلُ إشعارات هذا الجهاز أو إيقافُها — **فعلٌ في الخادم لا حالةٌ محلّيّة**.
+  ///
+  /// الإطفاءُ يُلغي تسجيلَ رمز الجهاز، والتشغيلُ يُعيده. ومُرسِلُ الإشعارات
+  /// يقرأ صفوفَ التسجيل — فغيابُ الصفّ هو الإطفاءُ نفسُه.
+  Future<void> _setNotif(bool on) async {
+    final session = ref.read(driverRepositoryProvider)?.sessionToken;
+    final t = ref.read(stringsProvider);
+    if (session == null) return;
+    setState(() => _notifBusy = true);
+    bool ok;
+    if (on) {
+      await PushService.instance.registerToken(session);
+      ok = PushService.instance.registered;
+    } else {
+      ok = await PushService.instance.unregisterThisDevice(session);
+    }
+    if (ok) await PushService.setEnabled(on);
+    if (!mounted) return;
+    setState(() {
+      _notifBusy = false;
+      // ⛔ الحالةُ تتبع ما وقع في الخادم لا ما ضغطه الإصبع: مفتاحٌ ينتقل
+      //   وشيءٌ لم يقع هو العطلُ الذي نُصلحه، لا حلُّه.
+      if (ok) _notif = on;
+    });
+    if (!ok) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(t.notifToggleFailed),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
 
   /// تشخيص الإشعارات الفورية — مخفيّ، يظهر بضغطة مطوّلة على اسم المندوب.
   bool _showPush = false;
@@ -85,10 +130,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     Icons.notifications_none,
                     t.newOrderNotifications,
                     iconColor: AppColors.muted2,
+                    // 🚨 **كان زينةً**: `onChanged` يضبط حالةً محلّيّةً لا
+                    //   تُحفظ ولا تُرسَل — يُطفئه المندوبُ فتستمرّ الإشعارات،
+                    //   ويعود مفتوحًا عند أوّل فتحٍ للتطبيق.
+                    //   الآن يُلغي تسجيلَ رمزِ هذا الجهاز (وهو ما يقرؤه
+                    //   مُرسِلُ الإشعارات فعلًا)، ويُعيده عند التشغيل.
                     trailing: Switch(
                       value: _notif,
                       activeTrackColor: AppColors.teal,
-                      onChanged: (v) => setState(() => _notif = v),
+                      onChanged: _notifBusy ? null : (v) => _setNotif(v),
                     ),
                   ),
                   _row(

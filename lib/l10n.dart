@@ -130,6 +130,8 @@ class L {
   String get typeMessage => _('اكتب رسالة…', 'Type a message…');
   String messageFrom(String name) => _('رسالة من $name', 'Message from $name');
   /// نصُّ الإشعار حين لا يُقرأ المتنُ بعد — البثُّ صار جرسًا بلا نصّ (0457).
+  String get notifToggleFailed =>
+      _('تعذّر تغيير إعداد الإشعارات — تحقّق من اتّصالك', 'Could not change the notification setting — check your connection');
   String get newMessage => _('رسالة جديدة', 'New message');
 
   // ---------- الخريطة ----------

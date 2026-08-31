@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/env.dart';
@@ -13,6 +14,30 @@ class PushService {
 
   bool _inited = false;
   bool _registered = false;
+
+  /// أرمزُ هذا الجهاز مسجَّلٌ في الخادم الآن؟ (مفتاحُ الإشعارات يقرؤه.)
+  bool get registered => _registered;
+
+  /// مفتاحُ تفضيل المندوب في هذا الجهاز.
+  ///
+  /// ⚠ **ويُقرأ قبل التسجيل التلقائيّ**: بدونه يُعيد `registerToken` — وهي
+  ///   تُنادى عند كلّ اتّصال — تسجيلَ الجهاز فيُلغي اختيارَ من أطفأ الإشعارات
+  ///   عند أوّل فتحٍ للتطبيق. أي أنّ المفتاح يعود زينةً من بابٍ آخر.
+  static const _prefKey = 'driver_push_enabled';
+
+  static Future<bool> isEnabled() async {
+    try {
+      return (await SharedPreferences.getInstance()).getBool(_prefKey) ?? true;
+    } catch (_) {
+      return true; // تعذّرت القراءة: الافتراضُ تشغيلٌ كما كان
+    }
+  }
+
+  static Future<void> setEnabled(bool v) async {
+    try {
+      await (await SharedPreferences.getInstance()).setBool(_prefKey, v);
+    } catch (_) {/* لا شيء: الفعلُ في الخادم وقع، والتفضيلُ راحةٌ لا حقيقة */}
+  }
   bool _registering = false;
   bool _apns = false;
   String _permission = '—';
@@ -125,6 +150,31 @@ class PushService {
       debugPrint('PushService.registerToken: $e');
     } finally {
       _registering = false;
+    }
+  }
+
+  /// إيقافُ إشعارات **هذا الجهاز** — يُلغي تسجيلَ رمزه في الخادم.
+  ///
+  /// 🚨 كان مفتاحُ «إشعارات الطلبات الجديدة» في صفحة الحساب حالةً محلّيّةً
+  /// (`bool _notif = true`) لا تُحفظ ولا تُرسَل: يُطفئه المندوبُ فتستمرّ
+  /// الإشعارات، ويعود المفتاحُ مفتوحًا عند أوّل فتحٍ للتطبيق. مفتاحٌ زينة.
+  ///
+  /// ولا يحتاج الإصلاحُ حقلَ تفضيلٍ في القاعدة ولا نشرَ دالّةِ حافّة: مُرسِلُ
+  /// الإشعارات يقرأ صفوفَ `driver_device_tokens` — فغيابُ الصفّ **هو** الإطفاء،
+  /// وهو أصدقُ تمثيلٍ للمعنى: «لا تُرسل إلى هذا الجهاز».
+  Future<bool> unregisterThisDevice(String sessionToken) async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return false;
+      await Supabase.instance.client.rpc('driver_unregister_device_token', params: {
+        'p_token': sessionToken,
+        'p_device_token': token,
+      });
+      _registered = false;
+      return true;
+    } catch (e) {
+      _lastError = 'unregister: $e';
+      return false;
     }
   }
 }

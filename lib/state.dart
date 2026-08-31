@@ -253,8 +253,12 @@ class DriverNotifier extends Notifier<DriverData> {
     await NotificationsService.instance.init();
 
     // إشعارات فورية (تصل والتطبيق مغلق): تسجيل رمز الجهاز برمز الجلسة.
+    //
+    // ⛔ وتفضيلُ المندوب يُقرأ **قبل** التسجيل: هذه تُنادى عند كلّ اتّصال،
+    //   فمن أطفأ الإشعارات كان تسجيلُه يُعاد عند أوّل فتحٍ للتطبيق — فيعود
+    //   المفتاحُ زينةً من بابٍ آخر.
     final session = _repo!.sessionToken;
-    if (session != null) {
+    if (session != null && await PushService.isEnabled()) {
       PushService.instance.registerToken(session);
     }
   }
