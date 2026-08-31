@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/env.dart';
 import 'data/crash_reporter.dart';
 import 'data/push_service.dart';
+import 'data/push_taps.dart';
 import 'l10n.dart';
 import 'theme.dart';
 import 'router.dart';
@@ -33,6 +34,9 @@ class MoaatmatDriverApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    // ⛔ نقرةُ الإشعار تُوصَّل مرّةً واحدةً بعد بناء المُوجِّه (الدالّةُ تحرس
+    //   التكرارَ بنفسها). وبدونها كان الخادمُ يرسل الوجهةَ والتطبيقُ يُهملها.
+    PushTaps.wire(router.go);
     final lang = ref.watch(localeProvider);
     return MaterialApp.router(
       title: 'Moaatmat Driver',
