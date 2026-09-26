@@ -123,6 +123,9 @@ class L {
   String get latestDeliveries => _('آخر التوصيلات', 'Latest deliveries');
   String get noPhone => _('لا رقم جوّال مسجَّل لهذا العميل', 'No phone number on file for this customer');
   String get callFailed => _('تعذّر فتح تطبيق الهاتف', 'Could not open the phone app');
+  /// طلبٌ بلا عنوانٍ مكتوب (نقطةُ البيع كثيرًا): الوجهةُ دبّوسٌ على الخريطة.
+  String get addressOnMapOnly => _('لا عنوان مكتوب — الموقع محدَّد على الخريطة', 'No written address — the location is pinned on the map');
+  String get noAddress => _('لا عنوان مسجَّل لهذا الطلب', 'No address on file for this order');
 
   // ---------- المحادثة ----------
   String orderNo(String id) => _('طلب #$id', 'Order #$id');

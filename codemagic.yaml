@@ -4,11 +4,15 @@
 # (مجموعة platform_shared) على مستوى فريق Codemagic — نفس إعداد تطبيق العميل.
 # سجلّ التطبيق مطلوب مرّة واحدة في App Store Connect بمعرّف com.moaatmat.moaatmatDriver.
 #
-# والخطّان كلاهما يقرآن «platform_shared». وما يخصّ أندرويد فيها:
+# والخطّان كلاهما يقرآن «platform_shared». وما يلزمهما معًا فيها:
+#   MAPS_API_KEY                    مفتاحُ خرائط جوجل للمنصّة (خرج من المستودع
+#                                   في 2834af3 — بدونه لا خريطةَ للمندوب)
+# وما يخصّ أندرويد:
 #   FIREBASE_DRIVER_APP_ID_ANDROID  معرّف تطبيق أندرويد (لا يصلح معرّف iOS)
 #   ANDROID_KEYSTORE_B64 · ANDROID_KEYSTORE_PASSWORD · ANDROID_KEY_ALIAS ·
 #   ANDROID_KEY_PASSWORD            مخزنُ مفتاح الرفع وكلماتُه
-# وما ينقص منها يُسقط البناء — لا يُتخطّى صامتًا.
+# وما ينقص منها يُسقط البناء — لا يُتخطّى صامتًا. (تجاوزٌ صريح عند الحاجة:
+# ALLOW_NO_MAPS=1 · ALLOW_NO_FIREBASE=1.)
 
 workflows:
   # ─────────────────── iOS → TestFlight (تطبيق واحد، معرّف ثابت) ───────────────────
@@ -27,6 +31,9 @@ workflows:
     scripts:
       - name: تثبيت الحزم
         script: flutter pub get
+      # أوّلَ الخطّ لا قبل البناء: فشلٌ بعد التوقيع والـpods يُهدر نصفَ ساعة.
+      - name: حارس مفتاح الخرائط (يُسقط البناء إن نقص)
+        script: bash scripts/check_maps_key.sh
       - name: ضبط Info.plist (موقع دائم + إعفاء التشفير)
         script: |
           /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" ios/Runner/Info.plist || \
@@ -98,6 +105,8 @@ workflows:
     scripts:
       - name: تثبيت الحزم
         script: flutter pub get
+      - name: حارس مفتاح الخرائط (يُسقط البناء إن نقص)
+        script: bash scripts/check_maps_key.sh
       - name: حارس إعداد Firebase (يُسقط البناء إن نقص)
         script: bash scripts/check_firebase_android.sh
       - name: تجهيز توقيع الإصدار

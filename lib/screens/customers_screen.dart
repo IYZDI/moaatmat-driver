@@ -61,7 +61,15 @@ class CustomersScreen extends ConsumerWidget {
     );
   }
 
-  Widget _addressRow(String address) {
+  /// ⚠ **وعنوانٌ فارغٌ يُقال فراغُه.** طلبُ التوصيل من نقطة البيع قد لا يحمل
+  ///   عنوانًا مكتوبًا — الكاشيرُ يضع الدبّوسَ على الخريطة وحدَه — فكان السطرُ
+  ///   يُرسم أيقونةً بلا نصّ. والآن يقول للمندوب أين يجد الوجهة: الخريطةُ إن
+  ///   كان ثمّة دبّوس، وإلّا فلا عنوانَ مسجَّل (فيتّصل أو يسأل المطعم).
+  Widget _addressRow(L t, Order o) {
+    final written = o.address.trim().isNotEmpty;
+    final text = written
+        ? o.address
+        : (o.lat != null && o.lng != null ? t.addressOnMapOnly : t.noAddress);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -70,7 +78,17 @@ class CustomersScreen extends ConsumerWidget {
           child: Icon(Icons.location_on_outlined, size: 16, color: AppColors.teal),
         ),
         const SizedBox(width: 7),
-        Expanded(child: Text(address, style: const TextStyle(fontSize: 13.5, color: AppColors.muted2, height: 1.5))),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: AppColors.muted2,
+              height: 1.5,
+              fontStyle: written ? FontStyle.normal : FontStyle.italic,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -93,7 +111,7 @@ class CustomersScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 10),
-          _addressRow(o.address),
+          _addressRow(t, o),
           // الفترةُ تحت العنوان مباشرةً: العنوانُ «أين» والفترةُ «متى»، وعليهما
           // معًا يبني المندوبُ ترتيبَ جولته. وحين لا تكون ثمّة فترةٌ تغيب هي
           // ومسافتُها معًا فلا تبقى فجوة.
@@ -193,7 +211,7 @@ class CustomersScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 10),
-          _addressRow(o.address),
+          _addressRow(t, o),
           // وفي بطاقات الانتظار تحديدًا تنفع الفترةُ أكثر: هنا يوازن المندوبُ
           // بين مَن ينتظره، والقائمةُ مرتّبةٌ بالمسافة لا بالوعد.
           if (o.deliverySlot != null) ...[
