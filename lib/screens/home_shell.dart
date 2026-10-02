@@ -60,11 +60,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final t = ref.watch(stringsProvider);
     // الملفُّ يصل بعد الدخول بلحظة — فالسؤالُ ينتظره.
     ref.listen(driverProvider.select((s) => s.profile?.name), (_, _) => _maybeAskName());
+    // في مرحلة التحميل زرّا «ابدأ المسار» و«امسح» مثبّتان أسفلَ «مساري» — فيرتفع
+    // الشريطُ فوقهما، وإلّا غطّى «ابدأ» أربعَ ثوانٍ بعد كلّ كيسٍ يُحمَّل.
+    final loadingPinned = widget.shell.currentIndex == 0 &&
+        ref.watch(currentGroupProvider.select((g) => g?.phase == RoutePhase.loading));
     return Scaffold(
       body: Stack(
         children: [
           Positioned.fill(child: widget.shell),
-          const Positioned(left: 0, right: 0, bottom: 0, child: UndoBar()),
+          Positioned(left: 0, right: 0, bottom: loadingPinned ? 76 : 0, child: const UndoBar()),
         ],
       ),
       bottomNavigationBar: NavigationBar(

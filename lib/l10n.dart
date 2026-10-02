@@ -242,6 +242,8 @@ class L {
   String ofThemAtDoor(int n) => _('منها $n عند الباب', '$n at the door');
   String get failedCount => _('تعذّرت', 'Failed');
   String returnToKitchen(String bags) => _('أعِد إلى المطبخ: $bags', 'Return to kitchen: $bags');
+  String get returnToKitchenTitle => _('أعِد هذه الأكياس إلى المطبخ', 'Return these bags to the kitchen');
+  String get scanShort => _('امسح', 'Scan');
   String get backAtKitchen => _('وصلتُ المطبخ', "I'm back at the kitchen");
   String nextRoute(String slot) => _('المسار التالي: $slot', 'Next route: $slot');
   String get dayDone => _('انتهى يومك — شكرًا لك', 'Your day is done — thank you');

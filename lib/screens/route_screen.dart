@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../l10n.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets/bag_badge.dart';
 import '../widgets/buttons.dart';
 import '../widgets/common.dart';
 import '../widgets/restaurant_header.dart';
@@ -71,10 +72,16 @@ class RouteScreen extends ConsumerWidget {
       };
     }
 
+    // زرّا التحميل مثبّتان أسفلَ الشاشة لا في آخر القائمة: مع ثمانية أكياسٍ أو
+    // أكثر كان «ابدأ المسار» تحت حافّة الشاشة، فلا يعرف المندوبُ أين يبدأ.
+    final pinned = group != null && group.phase == RoutePhase.loading;
+
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: RefreshIndicator(
+        child: Column(
+          children: [
+            Expanded(child: RefreshIndicator(
           // السحبُ يقرأ إعدادَ المطعم أيضًا — «غيّر المالكُ الصورة؟ اسحب».
           onRefresh: () => ref.read(driverProvider.notifier).refresh(full: true),
           child: ListView(
@@ -111,17 +118,18 @@ class RouteScreen extends ConsumerWidget {
               body,
             ],
           ),
+            )),
+            if (pinned) _LoadingActions(group: group),
+          ],
         ),
       ),
     );
   }
 }
 
-// ============================================================================
-// ١) التحميل
-// ============================================================================
-class _LoadingView extends ConsumerWidget {
-  const _LoadingView({required this.group});
+/// «امسح ملصق الكيس» و«ابدأ المسار» — مثبّتان فوق شريط التبويب.
+class _LoadingActions extends ConsumerWidget {
+  const _LoadingActions({required this.group});
 
   final RouteGroupView group;
 
@@ -151,6 +159,47 @@ class _LoadingView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(stringsProvider);
     final p = context.pal;
+    return Container(
+      decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.border))),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: BigButton(
+              label: t.startRoute(group.open.length),
+              icon: Icons.play_arrow_rounded,
+              onPressed: group.open.isEmpty ? null : () => _start(context, ref),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // المسحُ أيقونةٌ بكلمةٍ قصيرة: الزرُّ الأعرضُ هو الفعلُ الذي يُنهي هذه المرحلة.
+          Expanded(
+            child: BigButton(
+              label: t.scanShort,
+              icon: Icons.qr_code_scanner,
+              outlined: true,
+              onPressed: () => context.push('/scan?mode=bags'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// ١) التحميل
+// ============================================================================
+class _LoadingView extends ConsumerWidget {
+  const _LoadingView({required this.group});
+
+  final RouteGroupView group;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
+    final p = context.pal;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -172,19 +221,6 @@ class _LoadingView extends ConsumerWidget {
           crossAxisSpacing: 10,
           childAspectRatio: 0.95,
           children: [for (final s in group.all) _BagTile(stop: s)],
-        ),
-        const SizedBox(height: 18),
-        BigButton(
-          label: t.scanBagLabel,
-          icon: Icons.qr_code_scanner,
-          outlined: true,
-          onPressed: () => context.push('/scan?mode=bags'),
-        ),
-        const SizedBox(height: 10),
-        BigButton(
-          label: t.startRoute(group.open.length),
-          icon: Icons.play_arrow_rounded,
-          onPressed: group.open.isEmpty ? null : () => _start(context, ref),
         ),
       ],
     );
@@ -309,8 +345,9 @@ class _OnRouteView extends ConsumerWidget {
                 for (var i = 0; i < next.length; i++) ...[
                   if (i > 0) Divider(height: 1, color: context.pal.border),
                   NextStopRow(
-                    // الحاليّةُ رقم 1 — كما على الخريطة.
-                    index: i + 2,
+                    // رقمُ المحطة في المسار كلّه — كرأس الشاشة («المحطة 3 من 8») والخريطة:
+                    // الحاليّةُ = ما أُغلق + 1، والتي بعدها تليها.
+                    index: group.closedCount + i + 2,
                     stop: next[i],
                     onTap: () => showNextStopSheet(context, ref, next[i]),
                   ),
@@ -393,8 +430,9 @@ class _DoneView extends ConsumerWidget {
     final acked = s.local.acked.contains(group.key);
     final nextGroups = groups.where((g) => g.key != group.key && g.open.isNotEmpty);
     final nextGroup = nextGroups.isEmpty ? null : nextGroups.first;
-    // الأكياسُ المتعذّرة تعود إلى المطبخ — طلبُ الاشتراك بلا رقمٍ لا كيسَ له يُعاد.
-    final returnBags = t.bagList(failed.map((x) => x.bagLabel));
+    // الأكياسُ المتعذّرة تعود إلى المطبخ — **ما حُمّل منها وحدَه**: كيسٌ لم يغادر
+    // المطبخَ (تعذّر قبل أن يُحمَّل) لا يُطلب إرجاعُه.
+    final toReturn = failed.where((x) => x.pickedAt != null || x.enrouteAt != null).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -443,7 +481,7 @@ class _DoneView extends ConsumerWidget {
         ),
         ),
         const SizedBox(height: 16),
-        if (failed.isNotEmpty && !acked) ...[
+        if (toReturn.isNotEmpty && !acked) ...[
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -456,8 +494,20 @@ class _DoneView extends ConsumerWidget {
                 Icon(Icons.assignment_return_outlined, color: p.warnText),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(t.returnToKitchen(returnBags),
-                      style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w700, color: p.warnText)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t.returnToKitchenTitle,
+                          style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w700, color: p.warnText)),
+                      const SizedBox(height: 8),
+                      // شاراتٌ لا نصٌّ مفصول بفواصل: «#12، #15» يتقلّب اتّجاهُه في سطرٍ عربيّ.
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [for (final x in toReturn) BagBadge(x.bagLabel, fontSize: 16)],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

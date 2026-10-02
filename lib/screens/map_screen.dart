@@ -129,7 +129,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (!hasXY(s.pos)) continue;
       final isCurrent = s.id == current?.id;
       final bytes = await drawNumberedMarker(
-        '${i + 1}',
+        '${g.closedCount + i + 1}',
         fill: isCurrent ? p.primary : p.surface,
         text: isCurrent ? p.onPrimary : p.primaryText,
         ring: isCurrent ? p.onPrimary : p.primary,
@@ -395,7 +395,7 @@ class _NoMapPanel extends ConsumerWidget {
                           children: [
                             SizedBox(
                               width: 26,
-                              child: Text('${i + 1}',
+                              child: Text('${(group?.closedCount ?? 0) + i + 1}',
                                   style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w800, color: p.muted)),
                             ),
                             BagBadge(open[i].bagLabel, fontSize: 16),
