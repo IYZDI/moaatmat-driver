@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../l10n.dart';
 import '../moaatmat_logo.dart';
+import '../widgets/app_mark.dart';
 import '../state.dart';
 import '../theme.dart';
 
@@ -61,17 +62,39 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     final p = context.pal;
     return Scaffold(
       backgroundColor: p.surface,
-      body: Center(
+      body: Stack(
+        children: [
+          Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const MoaatmatLogo(size: 72),
+            const AppMark(size: 96),
             const SizedBox(height: 20),
             Text(t.appName, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: p.ink)),
             const SizedBox(height: 6),
             Text(t.tagline, style: TextStyle(fontSize: TextSizes.body, color: p.muted)),
           ],
         ),
+          ),
+          // توقيعُ المنصّة صغيرًا أسفلَ الشاشة: التطبيقُ للمندوب، والشعارُ لمؤتمت.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 32,
+            child: SafeArea(
+              top: false,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const MoaatmatLogo(size: 20),
+                  const SizedBox(width: 8),
+                  Text(t.ar ? 'مؤتمت' : 'Moaatmat',
+                      style: TextStyle(fontSize: TextSizes.caption, fontWeight: FontWeight.w700, color: p.muted)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

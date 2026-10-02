@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n.dart';
-import '../moaatmat_logo.dart';
+import '../widgets/app_mark.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -117,7 +117,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Center(child: MoaatmatLogo(size: 64)),
+                    const Center(child: AppMark(size: 80)),
                     const SizedBox(height: 18),
                     Text(t.appName,
                         textAlign: TextAlign.center,
