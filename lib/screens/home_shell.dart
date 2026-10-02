@@ -9,7 +9,13 @@ import '../widgets/buttons.dart';
 import '../widgets/undo_bar.dart';
 
 /// سُئل الاسمَ في هذه الجلسة؟ — مرّةً واحدة: «لاحقًا» تعني لاحقًا لا بعد ثانية.
-final namePromptedProvider = StateProvider<bool>((ref) => false);
+///
+/// ⚠ «الجلسة» جلسةُ دخول لا عمرُ التطبيق: يُصفَّر مع كلّ تغيّرٍ في حالة الدخول،
+///   وإلّا دخل مندوبٌ ثانٍ بلا اسمٍ بعد خروج الأوّل فلم يُسأل، ورآه فريقُ المطعم بلا اسم.
+final namePromptedProvider = StateProvider<bool>((ref) {
+  ref.watch(driverProvider.select((s) => s.auth));
+  return false;
+});
 
 /// ============================================================================
 /// إطارُ التبويبات الثلاثة (مساري · سجلّي · حسابي) وشريطُ التراجع فوقها.

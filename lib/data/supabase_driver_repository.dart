@@ -34,6 +34,10 @@ class SupabaseDriverRepository implements DriverRepository {
 
   // ---------- تصنيف الأخطاء ----------
 
+  /// أصنافُ SQLSTATE التي لا تُصلحها الإعادة: 42 (صياغة/صلاحيّة/غيرُ موجود)
+  /// و22 (بياناتٌ مرفوضة).
+  static final _permanentSqlState = RegExp(r'^(42|22)[0-9A-Z]{3}$');
+
   /// كلُّ خطأٍ ⇒ نوعٌ ورسالة. ‎P0001‎ رسالةٌ كتبها الخادمُ للمندوب فتُعرض حرفيًّا،
   /// و«جلسة غير صالحة» (0472 وحّدت نصَّها في كلّ الدوال) ⇒ خروج.
   static DriverActionError classify(Object e) {
@@ -44,7 +48,10 @@ class SupabaseDriverRepository implements DriverRepository {
       final code = e.code ?? '';
       if (code == 'P0001') return DriverActionError.permanent(e.message);
       // دالّةٌ غيرُ موجودة (هجرةٌ لم تُطبَّق) أو معاملٌ خاطئ: الإعادةُ لا تُصلحها.
-      if (code.startsWith('PGRST2') || code.startsWith('42') || code.startsWith('22')) {
+      // ⚠ SQLSTATE من خمسة محارف فقط: postgrest يضع رمزَ HTTP في `code` حين لا
+      //   يفهم جسمَ الردّ (صفحةُ HTML من البوّابة)، و«429» يبدأ بـ«42» — فكان
+      //   تقييدُ المعدّل يُسقط تسليمًا محفوظًا نهائيًّا بدل إعادته بعد ثوانٍ.
+      if (code.startsWith('PGRST2') || _permanentSqlState.hasMatch(code)) {
         return DriverActionError.permanent('الخادم لم يقبل الطلب (${e.code}) — حدّث التطبيق أو تواصل مع المطعم');
       }
       return const DriverActionError.transient();

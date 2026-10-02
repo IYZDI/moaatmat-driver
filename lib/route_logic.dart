@@ -266,6 +266,40 @@ class RouteLocal {
 
 const Object _keep = Object();
 
+/// مفتاحُ فترة «من يومٍ سابق»: محطّاتٌ بقيت «في الطريق» من مسارٍ مضى.
+///
+/// ⚠ لا تُخلط بفترة اليوم التي تحمل الاسمَ نفسَه: محطّةٌ عالقةٌ من الأمس كانت
+///   تجعل «صباحًا» اليوم «على الطريق» فيتخطّى المندوبُ تحميلَ أكياسه، وتصير
+///   عميلةُ الأمس محطّتَه الحاليّة. ولا يُرسَل لها «أجِّل»: الخادمُ يُعيدها
+///   «جاهزة» فتختفي من مساره (لا يعرض الجاهزَ إلّا لليوم) والكيسُ في سيّارته.
+const pastGroupKey = '\u0001past';
+
+/// يومٌ (yyyy-MM-dd) ⇒ تاريخ، أو null.
+DateTime? parseDayKey(String? s) {
+  final p = (s ?? '').split('-');
+  if (p.length != 3) return null;
+  final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+  return (y == null || m == null || d == null) ? null : DateTime(y, m, d);
+}
+
+/// محطّةٌ من مسار يومٍ قبل [today]؟ (بلا تاريخٍ أو بلا «اليوم» ⇒ لا.)
+bool isPastStop(Stop s, DateTime? today) {
+  final d = s.routeDate;
+  if (d == null || today == null) return false;
+  return DateTime(d.year, d.month, d.day).isBefore(DateTime(today.year, today.month, today.day));
+}
+
+/// الفترةُ التي تنتمي إليها المحطّة على الشاشة.
+String groupKeyOf(Stop s, DateTime? today) => isPastStop(s, today) ? pastGroupKey : s.slotKey;
+
+/// ترتيبُ المدخل قبل أقرب جار — **المفتاحُ نفسُه في اللوحة** (`buildRoutes`).
+///
+/// ⚠ أقربُ جارٍ يتبع ترتيبَ مدخله في ثلاث: التعادل، وذيلِ ما لا موقعَ له،
+///   ونقطةِ البدء حين لا موقعَ للفرع. والطرفان كانا يقرآن صفوفَهما بترتيبين
+///   مختلفين (اللوحةُ بوقتٍ يتساوى لكلّ اشتراكات اليوم) فاختلفت الورقتان.
+///   معرّفُ التوصيلة مفتاحٌ يملكه الطرفان، و`compareTo` هنا = `<` في JS.
+int compareRouteInput(Stop a, Stop b) => a.id.compareTo(b.id);
+
 /// مجموعةُ فترةٍ بترتيب ورقة المسار — قبل تطبيق قرارات المندوب.
 class StopGroup {
   const StopGroup({
@@ -276,6 +310,7 @@ class StopGroup {
     required this.slotEnd,
     required this.start,
     required this.all,
+    this.past = false,
   });
   final String key;
   final String? slotLabel;
@@ -284,18 +319,23 @@ class StopGroup {
   final String? slotEnd;
   final LatLon? start;
   final List<Stop> all;
+
+  /// محطّاتٌ عالقة من يومٍ سابق ([pastGroupKey]).
+  final bool past;
 }
 
 /// المحطّاتُ ← فتراتٌ مرتّبة. كلُّ فترةٍ تبدأ من الفرع الغالب على محطّاتها،
 /// ويُحسب الترتيبُ على **كلّ** محطّاتها (المفتوحة والمغلقة اليوم) — فلا يتبدّل
 /// رقمُ «المحطة ٨» تحت يد المندوب كلّما أغلق واحدة.
-List<StopGroup> buildGroups(List<Stop> stops) {
+/// و[today] يومُ المطعم: ما قبله يُعزل في فترة «من يومٍ سابق».
+List<StopGroup> buildGroups(List<Stop> stops, {DateTime? today}) {
   final byKey = <String, List<Stop>>{};
-  for (final s in stops) {
-    byKey.putIfAbsent(s.slotKey, () => []).add(s);
+  for (final s in [...stops]..sort(compareRouteInput)) {
+    byKey.putIfAbsent(groupKeyOf(s, today), () => []).add(s);
   }
   final groups = <StopGroup>[];
   byKey.forEach((key, list) {
+    final past = key == pastGroupKey;
     final branchId = modeOf(list.map((s) => s.branchId));
     LatLon? start;
     if (branchId != null) {
@@ -316,12 +356,13 @@ List<StopGroup> buildGroups(List<Stop> stops) {
     }
     groups.add(StopGroup(
       key: key,
-      slotLabel: key.isEmpty ? null : key,
-      slotSort: sort,
-      slotStart: from,
-      slotEnd: to,
+      slotLabel: key.isEmpty || past ? null : key,
+      slotSort: past ? null : sort,
+      slotStart: past ? null : from,
+      slotEnd: past ? null : to,
       start: start,
       all: orderStops(start, list),
+      past: past,
     ));
   });
   groups.sort(compareGroups);
@@ -329,8 +370,10 @@ List<StopGroup> buildGroups(List<Stop> stops) {
 }
 
 /// ترتيبُ الفترات: `slot_sort` تصاعديًّا (الفارغُ آخرًا) ثمّ الاسم، وما لا فترةَ
-/// له في الآخر (طلباتُ نقطة البيع).
+/// له في الآخر (طلباتُ نقطة البيع)، ثمّ العالقُ من يومٍ سابق: مسارُ اليوم هو ما
+/// يفتح عليه التطبيق، والعالقُ ظاهرٌ في رقاقته لا يزاحمه.
 int compareGroups(StopGroup a, StopGroup b) {
+  if (a.past != b.past) return a.past ? 1 : -1;
   final an = a.key.isEmpty, bn = b.key.isEmpty;
   if (an != bn) return an ? 1 : -1;
   final sa = a.slotSort, sb = b.slotSort;
@@ -369,13 +412,22 @@ List<Stop> effectiveOpenOrder(List<Stop> sheet, RouteLocal local) {
   return list;
 }
 
-/// المرحلة: «حمّل أكياسك» حتّى يبدأ المسارَ (أو تكون محطّةٌ في الطريق فعلًا —
-/// بدأه من جهازٍ آخر أو قبل إعادة التثبيت)، ثمّ «على الطريق»، ثمّ «انتهى».
-RoutePhase phaseOf(String key, List<Stop> open, RouteLocal local) {
+/// بدأ المندوبُ هذا المسار؟ ضغط «ابدأ المسار» على هذا الهاتف، أو أثرُه ظاهرٌ
+/// عند الخادم: محطّةٌ «في الطريق»، أو محطّةٌ أغلقها بعد أن حمّل كيسَها.
+///
+/// ⚠ «ابدأ» محفوظٌ على الهاتف وحده ويُمحى بالخروج: بعد دخولٍ جديدٍ في منتصف
+///   المسار كان أوّلُ تسليمٍ يعيده إلى «حمّل أكياسك» فلا يُوجَّه التالي، ولا
+///   يظهر ملخّصُ النهاية. فما يقوله الخادمُ يكفي دليلًا.
+/// ⚠ والمغلقُ بلا تحميلٍ لا يُعدّ: قد يُغلقه فريقُ المطعم قبل خروج المندوب.
+bool groupStarted(String key, Iterable<Stop> all, RouteLocal local) =>
+    local.started.contains(key) ||
+    all.any((s) => s.status == StopStatus.enroute || (s.isClosed && s.pickedAt != null));
+
+/// المرحلة: «حمّل أكياسك» حتّى يبدأ المسارَ ([groupStarted])، ثمّ «على الطريق»،
+/// ثمّ «انتهى». [closed] مغلقُ الفترة — دليلُ بدءٍ بعد دخولٍ جديد.
+RoutePhase phaseOf(String key, List<Stop> open, RouteLocal local, {Iterable<Stop> closed = const []}) {
   if (open.isEmpty) return RoutePhase.done;
-  if (!local.started.contains(key) && !open.any((s) => s.status == StopStatus.enroute)) {
-    return RoutePhase.loading;
-  }
+  if (!groupStarted(key, [...open, ...closed], local)) return RoutePhase.loading;
   return RoutePhase.onRoute;
 }
 
@@ -397,6 +449,8 @@ class RouteGroupView {
     required this.loadedCount,
     required this.start,
     this.acked = false,
+    this.started = false,
+    this.past = false,
   });
 
   final String key;
@@ -423,6 +477,12 @@ class RouteGroupView {
   /// أقرّ المندوبُ بنهايتها («وصلتُ المطبخ»).
   final bool acked;
 
+  /// بدأها ([groupStarted]) — فنهايتُها تُعرض ملخّصًا قبل الفترة التالية.
+  final bool started;
+
+  /// محطّاتٌ عالقة من يومٍ سابق ([pastGroupKey]) — لا تحميلَ لها ولا ملخّص.
+  final bool past;
+
   bool get hasSlot => slotLabel != null;
   int get remaining => open.length;
 
@@ -433,20 +493,25 @@ class RouteGroupView {
 }
 
 /// المحطّاتُ الفعليّة + قراراتُ المندوب ⇒ فتراتُ الشاشة.
+/// «اليوم» يومُ قرارات المندوب (`local.day` = يومُ المطعم)؛ والعالقُ من يومٍ
+/// سابق يغيب حين يُغلق كلُّه — لا ملخّصَ ولا «وصلتُ المطبخ» لمسارٍ مضى.
 List<RouteGroupView> buildRouteGroupViews(List<Stop> stops, RouteLocal local) => [
-      for (final g in buildGroups(stops)) groupView(g, local),
+      for (final g in buildGroups(stops, today: parseDayKey(local.day)))
+        if (!g.past || g.all.any((s) => s.isOpen)) groupView(g, local),
     ];
 
 RouteGroupView groupView(StopGroup g, RouteLocal local) {
   final open = effectiveOpenOrder(g.all, local);
   final closed = [for (final s in g.all) if (s.isClosed) s];
+  final started = !g.past && groupStarted(g.key, g.all, local);
   return RouteGroupView(
     key: g.key,
     slotLabel: g.slotLabel,
     slotStart: g.slotStart,
     slotEnd: g.slotEnd,
     slotSort: g.slotSort,
-    phase: phaseOf(g.key, open, local),
+    // العالقُ أكياسُه في السيّارة منذ أمس: لا مرحلةَ تحميل.
+    phase: g.past ? (open.isEmpty ? RoutePhase.done : RoutePhase.onRoute) : phaseOf(g.key, open, local, closed: closed),
     all: g.all,
     open: open,
     closed: closed,
@@ -456,13 +521,41 @@ RouteGroupView groupView(StopGroup g, RouteLocal local) {
     loadedCount: g.all.where((s) => s.isLoaded).length,
     start: g.start,
     acked: local.acked.contains(g.key),
+    started: started,
+    past: g.past,
   );
+}
+
+// ═══════════════ ④ب عدُّ السجلّ ═══════════════
+
+/// أقصى ما يُعيده `driver_history_v2` (الأحدثُ أوّلًا).
+const int historyRowCap = 300;
+
+/// المسلَّمُ منذ [from] في السجلّ. ⚠ السجلُّ مقطوعٌ عند [cap] صفّ: مندوبٌ مشغول
+/// يتجاوزها في أيّام، فعدُّ «هذا الشهر» من قائمةٍ مقطوعة رقمٌ مخترَع. فإن امتلأت
+/// القائمةُ وأقدمُ صفوفها ما زال داخل النافذة، فالعددُ **حدٌّ أدنى** (`atLeast`).
+({int count, bool atLeast}) deliveredSince(
+  List<HistoryEntry> list,
+  DateTime from,
+  DateTime Function(HistoryEntry) dayOf, {
+  int cap = historyRowCap,
+}) {
+  final start = DateTime(from.year, from.month, from.day);
+  var n = 0;
+  DateTime? oldest;
+  for (final e in list) {
+    final d = dayOf(e);
+    if (oldest == null || d.isBefore(oldest)) oldest = d;
+    if (e.delivered && !d.isBefore(start)) n++;
+  }
+  final cut = list.length >= cap && oldest != null && !oldest.isBefore(start);
+  return (count: n, atLeast: cut);
 }
 
 // ═══════════════ ⑤ العدد بالعربيّة ═══════════════
 
 /// الأسماءُ المعدودة في الواجهة.
-enum ArNoun { stop, delivery, meal, time }
+enum ArNoun { stop, delivery, meal, time, action }
 
 const _forms = <ArNoun, List<String>>{
   //            مفرد      مثنّى(رفع)   مثنّى(نصب)    جمع(٣–١٠)
@@ -470,6 +563,7 @@ const _forms = <ArNoun, List<String>>{
   ArNoun.delivery: ['توصيلة', 'توصيلتان', 'توصيلتين', 'توصيلات'],
   ArNoun.meal: ['وجبة', 'وجبتان', 'وجبتين', 'وجبات'],
   ArNoun.time: ['مرّة', 'مرّتان', 'مرّتين', 'مرّات'],
+  ArNoun.action: ['عملية', 'عمليتان', 'عمليتين', 'عمليات'],
 };
 
 const _en = <ArNoun, List<String>>{
@@ -477,6 +571,7 @@ const _en = <ArNoun, List<String>>{
   ArNoun.delivery: ['delivery', 'deliveries'],
   ArNoun.meal: ['meal', 'meals'],
   ArNoun.time: ['time', 'times'],
+  ArNoun.action: ['action', 'actions'],
 };
 
 /// «محطة واحدة · محطتان · 3 محطات · 11 محطة» — قاعدةُ العدد العربيّة.

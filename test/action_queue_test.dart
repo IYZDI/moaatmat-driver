@@ -196,4 +196,31 @@ void main() {
     await h.queue.flush();
     expect(h.sent, ['d1:delivered']);
   });
+
+  test('Q-F · «اخرج» يرسل حتّى ما ينتظر تباعدَه — ولا يتخطّاه فيمحوه الخروج', () async {
+    final h = Harness();
+    h.failWith['d1:delivered'] = const DriverActionError.transient();
+    await h.queue.enqueue('d1', 'delivered', photo: [1]);
+    await h.queue.pump();
+    expect(h.queue.items.single.nextTryAt, isNotNull, reason: 'فشل مرّةً فينتظر');
+    await h.queue.flush(); // الشبكةُ عادت قبل انتهاء التباعد
+    expect(h.sent, ['d1:delivered+1', 'd1:delivered+1']);
+    expect(h.queue.items, isEmpty);
+  });
+
+  test('Q-P · «أوقف» لا يمحو، و«ابدأ» يستأنف (جلسةٌ ماتت ثمّ عاد صاحبُها)', () async {
+    final h = Harness();
+    await h.queue.enqueue('d1', 'picked');
+    h.queue.pause();
+    await h.queue.pump();
+    expect(h.sent, isEmpty);
+    expect(h.queue.items, hasLength(1));
+    h.queue.kick();
+    await h.queue.pump();
+    expect(h.sent, ['d1:picked']);
+    final s = MemoryQueueStore();
+    expect(await s.readOwner(), isNull);
+    await s.writeOwner('drv-1');
+    expect(await s.readOwner(), 'drv-1');
+  });
 }

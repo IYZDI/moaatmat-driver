@@ -60,12 +60,13 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
     DateTime dayOf(HistoryEntry e) => _day(e.routeDate ?? e.deliveredAt?.toLocal() ?? today);
 
-    final delivered = s.history.where((e) => e.delivered);
-    final todayCount = delivered.where((e) => dayOf(e) == today).length;
-    final monthCount = delivered.where((e) {
-      final d = dayOf(e);
-      return d.year == today.year && d.month == today.month;
-    }).length;
+    // ⚠ السجلُّ آخرُ 300 صفٍّ فقط: مندوبٌ مشغولٌ يتجاوزها في أيّام، فعدُّ الشهر من
+    //   قائمةٍ مقطوعة رقمٌ مخترَع. ما قد يكون مقطوعًا يُكتب «300+» (حدًّا أدنى).
+    //   وقبل أوّل تحميلٍ ناجح لا رقم («—»): «0 سُلّمت» ادّعاءٌ لا نعرفه.
+    final todayCount = deliveredSince(s.history, today, dayOf);
+    final monthCount = deliveredSince(s.history, DateTime(today.year, today.month), dayOf);
+    String shown(({int count, bool atLeast}) c) =>
+        !s.historyLoaded ? '—' : (c.atLeast ? t.atLeast(c.count) : '${c.count}');
 
     // التجميعُ بتاريخ المسار، والأحدثُ أوّلًا (الخادمُ يرتّبها كذلك).
     final days = <DateTime, List<HistoryEntry>>{};
@@ -88,11 +89,17 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  Expanded(child: _Stat(value: todayCount, label: t.today, sub: t.deliveredCount)),
+                  Expanded(child: _Stat(value: shown(todayCount), label: t.today, sub: t.deliveredCount)),
                   const SizedBox(width: 10),
-                  Expanded(child: _Stat(value: monthCount, label: t.thisMonth, sub: t.deliveredCount)),
+                  Expanded(child: _Stat(value: shown(monthCount), label: t.thisMonth, sub: t.deliveredCount)),
                 ],
               ),
+              if (s.historyLoaded && (monthCount.atLeast || todayCount.atLeast))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(t.historyCapped(historyRowCap),
+                      style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),
+                ),
               if (!s.historyLoaded && s.history.isEmpty && _loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 60),
@@ -133,7 +140,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 class _Stat extends StatelessWidget {
   const _Stat({required this.value, required this.label, required this.sub});
 
-  final int value;
+  /// نصٌّ لا عدد: «12» أو «300+» أو «—».
+  final String value;
   final String label;
   final String sub;
 
@@ -145,7 +153,7 @@ class _Stat extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: TextStyle(fontSize: TextSizes.small, fontWeight: FontWeight.w700, color: p.muted)),
-          Text('$value', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: p.ink)),
+          Text(value, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: p.ink)),
           Text(sub, style: TextStyle(fontSize: TextSizes.caption, color: p.successText)),
         ],
       ),

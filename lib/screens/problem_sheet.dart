@@ -43,6 +43,10 @@ class _ProblemSheetState extends ConsumerState<_ProblemSheet> {
   final _other = TextEditingController();
   bool _busy = false;
 
+  /// لماذا لم تُلتقط صورةُ الباب — يُكتب داخل الورقة: شريطُ أسفل الشاشة يقع
+  /// تحتها فلا يُرى، والورقةُ الباقيةُ بلا كلمةٍ كانت زرًّا صامتًا.
+  PhotoFailure? _photoFailure;
+
   @override
   void dispose() {
     _other.dispose();
@@ -66,11 +70,18 @@ class _ProblemSheetState extends ConsumerState<_ProblemSheet> {
       case null:
         return;
       case _Choice.door:
-        setState(() => _busy = true);
-        final photo = await takeDeliveryPhoto();
+        setState(() {
+          _busy = true;
+          _photoFailure = null;
+        });
+        final r = await takeDeliveryPhoto();
         if (!mounted) return;
-        setState(() => _busy = false);
-        if (photo == null) return; // ألغى الكاميرا: الورقةُ باقيةٌ كما هي
+        setState(() {
+          _busy = false;
+          _photoFailure = r.failure == PhotoFailure.cancelled ? null : r.failure;
+        });
+        final photo = r.bytes;
+        if (photo == null) return; // ألغى أو تعذّرت (والسببُ ظاهرٌ في الورقة)
         HapticFeedback.mediumImpact();
         nav.pop();
         await n.leaveAtDoor(widget.stop.id, photo);
@@ -200,8 +211,41 @@ class _ProblemSheetState extends ConsumerState<_ProblemSheet> {
                 busy: _busy,
                 onPressed: _choice == null ? null : _confirm,
               ),
+              if (_choice == _Choice.door && _photoFailure != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                  decoration: BoxDecoration(
+                    color: p.warnSoft,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: p.warnBorder),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.no_photography_outlined, color: p.warnText),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          // البابُ يحتاج صورةً في كلّ مطعم — لا «إلزاميّة في هذا المطعم».
+                          photoFailureText(t, _photoFailure!, required: false) ?? '',
+                          style: TextStyle(fontSize: TextSizes.small, fontWeight: FontWeight.w700, color: p.warnText),
+                        ),
+                      ),
+                      if (_photoFailure == PhotoFailure.denied)
+                        TextButton(
+                          onPressed: openAppSettings,
+                          style: TextButton.styleFrom(foregroundColor: p.warnText, minimumSize: const Size(48, 48)),
+                          child: Text(t.openSettings,
+                              style: const TextStyle(fontSize: TextSizes.small, fontWeight: FontWeight.w800)),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
-              Text(t.undoWithin10,
+              // «تستطيع التراجع» وعدٌ لا يصدق إلّا على الباب والتعذّر (مهلةُ العشر
+              // ثوانٍ). التأجيلُ يُنفَّذ فورًا بلا شريط تراجع — فيُقال كيف يُعاد.
+              Text(_choice == _Choice.defer ? t.deferHint : t.undoWithin10,
                   textAlign: TextAlign.center, style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),
             ],
           ),

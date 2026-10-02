@@ -38,13 +38,14 @@ class RouteScreen extends ConsumerWidget {
         body = EmptyState(
           icon: Icons.cloud_off_outlined,
           title: t.loadFailed,
-          body: s.loadError,
+          // نصٌّ ولّده التطبيق (رفضٌ برمزٍ تقنيّ) يُترجَم؛ ونصُّ الخادم يبقى بلغته.
+          body: t.event(s.loadError!),
           action: BigButton(
             label: t.retry,
             icon: Icons.refresh,
             outlined: true,
             busy: s.syncing,
-            onPressed: () => ref.read(driverProvider.notifier).refresh(),
+            onPressed: () => ref.read(driverProvider.notifier).refresh(full: true),
           ),
         );
       } else if (s.lastSync == null) {
@@ -74,7 +75,8 @@ class RouteScreen extends ConsumerWidget {
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          onRefresh: () => ref.read(driverProvider.notifier).refresh(),
+          // السحبُ يقرأ إعدادَ المطعم أيضًا — «غيّر المالكُ الصورة؟ اسحب».
+          onRefresh: () => ref.read(driverProvider.notifier).refresh(full: true),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             // مساحةٌ تحت القائمة كي لا يغطّي شريطُ التراجع آخرَ سطر.
@@ -410,8 +412,8 @@ class _DoneView extends ConsumerWidget {
         Text(t.routeDone,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: TextSizes.headline, fontWeight: FontWeight.w800, color: p.ink)),
-        if (group.slotLabel != null)
-          Text(group.slotLabel!,
+        if (group.slotLabel != null || group.past)
+          Text(t.groupName(group),
               textAlign: TextAlign.center, style: TextStyle(fontSize: TextSizes.body, color: p.muted)),
         const SizedBox(height: 18),
         // البلاطتان بارتفاعٍ واحد وإن حملت إحداهما سطرَ «عند الباب».
@@ -468,7 +470,7 @@ class _DoneView extends ConsumerWidget {
           ),
         ] else if (nextGroup != null)
           BigButton(
-            label: t.nextRoute(nextGroup.slotLabel ?? t.noSlot),
+            label: t.nextRoute(t.groupName(nextGroup)),
             icon: Icons.arrow_forward,
             onPressed: () => ref.read(selectedGroupKeyProvider.notifier).state = nextGroup.key,
           )

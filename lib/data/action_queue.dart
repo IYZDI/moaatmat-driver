@@ -104,17 +104,27 @@ abstract class QueueStore {
   Future<String> savePhoto(String key, List<int> bytes);
   Future<List<int>?> loadPhoto(String ref);
   Future<void> deletePhoto(String ref);
+
+  /// صاحبُ الطابور (معرّفُ المندوب) — جلسةٌ ماتت لا تمحو أفعالَه، فتُرسَل إن عاد
+  /// هو، وتُمحى إن دخل غيرُه.
+  Future<String?> readOwner();
+  Future<void> writeOwner(String? driverId);
 }
 
 /// في الذاكرة — للاختبار، وللويب حيث لا ملفّات.
 class MemoryQueueStore implements QueueStore {
   String? data;
+  String? owner;
   final Map<String, List<int>> photos = {};
 
   @override
   Future<String?> read() async => data;
   @override
   Future<void> write(String json) async => data = json;
+  @override
+  Future<String?> readOwner() async => owner;
+  @override
+  Future<void> writeOwner(String? driverId) async => owner = driverId;
   @override
   Future<String> savePhoto(String key, List<int> bytes) async {
     photos['mem:$key'] = List.of(bytes);
@@ -131,6 +141,7 @@ class MemoryQueueStore implements QueueStore {
 /// التفضيلات). وعلى الويب — أو إن غاب المجلّد — تبقى الصورُ في الذاكرة.
 class PrefsQueueStore implements QueueStore {
   static const _key = 'action_queue_v1';
+  static const _ownerKey = 'action_queue_owner';
   final MemoryQueueStore _mem = MemoryQueueStore();
 
   @override
@@ -140,15 +151,44 @@ class PrefsQueueStore implements QueueStore {
   Future<void> write(String json) async => (await SharedPreferences.getInstance()).setString(_key, json);
 
   @override
+  Future<String?> readOwner() async {
+    try {
+      return (await SharedPreferences.getInstance()).getString(_ownerKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> writeOwner(String? driverId) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      driverId == null ? await sp.remove(_ownerKey) : await sp.setString(_ownerKey, driverId);
+    } catch (_) {}
+  }
+
+  /// مرجعُ الصورة = اسمُ ملفّها وحدَه، ويُحلّ مجلّدُ المستندات عند كلّ قراءة.
+  ///
+  /// ⚠ لا المسارُ المطلق: iOS يغيّر مسارَ حاوية التطبيق مع كلّ تحديث (بناءُ
+  ///   TestFlight جديد)، فتسليمٌ صُوّر بلا شبكةٍ ثمّ حُدّث التطبيقُ قبل إرساله
+  ///   كان يُقرأ «ضاعت صورة التسليم» فتُفتح المحطّةُ بعد أن غادر المندوب.
+  static Future<File> _file(String ref) async {
+    // مراجعُ قديمة كانت مساراتٍ مطلقة — يُؤخذ اسمُها ويُبحث في المجلّد الحاليّ.
+    final name = ref.split(RegExp(r'[\\/]')).last;
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/proof_queue/$name');
+  }
+
+  @override
   Future<String> savePhoto(String key, List<int> bytes) async {
     if (kIsWeb) return _mem.savePhoto(key, bytes);
     try {
       final dir = await getApplicationDocumentsDirectory();
       final folder = Directory('${dir.path}/proof_queue');
       if (!await folder.exists()) await folder.create(recursive: true);
-      final f = File('${folder.path}/$key.jpg');
-      await f.writeAsBytes(bytes, flush: true);
-      return f.path;
+      final name = '$key.jpg';
+      await File('${folder.path}/$name').writeAsBytes(bytes, flush: true);
+      return name;
     } catch (_) {
       return _mem.savePhoto(key, bytes);
     }
@@ -159,7 +199,7 @@ class PrefsQueueStore implements QueueStore {
     if (ref.startsWith('mem:')) return _mem.loadPhoto(ref);
     if (kIsWeb) return null;
     try {
-      final f = File(ref);
+      final f = await _file(ref);
       return await f.exists() ? await f.readAsBytes() : null;
     } catch (_) {
       return null;
@@ -170,7 +210,7 @@ class PrefsQueueStore implements QueueStore {
   Future<void> deletePhoto(String ref) async {
     if (ref.startsWith('mem:') || kIsWeb) return _mem.deletePhoto(ref);
     try {
-      final f = File(ref);
+      final f = await _file(ref);
       if (await f.exists()) await f.delete();
     } catch (_) {}
   }
@@ -343,13 +383,27 @@ class ActionQueue {
   }
 
   /// يُنهي المهلَ كلَّها ويرسل ما أمكن الآن، وينتظر — قبل الخروج.
+  ///
+  /// ⚠ ويُسقط انتظارَ الإعادة أيضًا (كـ[kick]): فعلٌ تعثّر مرّةً ينتظر حتّى دقيقة،
+  ///   و`_nextDue` يتخطّاه — فكان الخروجُ بعد عودة الشبكة بثوانٍ لا يرسله أبدًا.
   Future<void> flush() async {
     final now = QueueClock.now();
+    _halted = false;
     for (var i = 0; i < _items.length; i++) {
-      if (_items[i].commitAt.isAfter(now)) _items[i] = _items[i].copyWith(commitAt: now);
+      final a = _items[i];
+      if (a.commitAt.isAfter(now) || a.nextTryAt != null) {
+        _items[i] = a.copyWith(commitAt: a.commitAt.isAfter(now) ? now : null, clearNextTry: true);
+      }
     }
     _changed();
     await pump();
+  }
+
+  /// يوقف الإرسالَ ولا يمحو شيئًا (جلسةٌ ماتت): [kick] يستأنفه بعد الدخول.
+  void pause() {
+    _halted = true;
+    _timer?.cancel();
+    _timer = null;
   }
 
   // ---------- الإرسال ----------

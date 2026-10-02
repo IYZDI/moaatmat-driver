@@ -41,7 +41,7 @@ class SlotChips extends StatelessWidget {
                       const SizedBox(width: 4),
                     ],
                     Text(
-                      '${g.slotLabel ?? t.noSlot} · ${g.total}',
+                      '${t.groupName(g)} · ${g.total}',
                       style: TextStyle(
                         fontSize: TextSizes.small,
                         fontWeight: FontWeight.w700,

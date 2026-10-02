@@ -35,12 +35,13 @@ Future<void> navigateStop(BuildContext context, WidgetRef ref, Stop stop) async 
 
 /// «تم التسليم»: إن ألزم المطعمُ بالصورة فتحت الكاميرا أوّلًا — والخادمُ يرفض
 /// التسليمَ بلا صورةٍ على أيّ حال، فالأفضلُ ألّا يُكتشف ذلك بعد عشر ثوانٍ.
-Future<void> deliverStop(WidgetRef ref, Stop stop, {bool withPhoto = false}) async {
+/// وإن تعذّرت الكاميرا (إذنٌ مرفوض) قيل السببُ — زرٌّ لا يفعل شيئًا بصمتٍ كذبة.
+Future<void> deliverStop(BuildContext context, WidgetRef ref, Stop stop, {bool withPhoto = false}) async {
   final required = ref.read(driverProvider).profile?.photoRequired ?? true;
   final n = ref.read(driverProvider.notifier);
   if (required || withPhoto) {
-    final photo = await takeDeliveryPhoto();
-    if (photo == null) return; // ألغى الكاميرا: لا شيءَ سُلِّم
+    final photo = await takeDeliveryPhotoOrExplain(context, ref.read(stringsProvider), required: required);
+    if (photo == null) return; // ألغى أو تعذّرت (والسببُ قيل): لا شيءَ سُلِّم
     HapticFeedback.mediumImpact();
     await n.deliver(stop.id, photo: photo);
   } else {
@@ -214,7 +215,7 @@ class CurrentStopCard extends ConsumerWidget {
                   icon: photoRequired ? Icons.photo_camera_outlined : Icons.check_circle_outline,
                   tone: Tone.success,
                   height: 60,
-                  onPressed: () => deliverStop(ref, stop),
+                  onPressed: () => deliverStop(context, ref, stop),
                 ),
               ),
               if (!photoRequired) ...[
@@ -223,7 +224,7 @@ class CurrentStopCard extends ConsumerWidget {
                   icon: Icons.photo_camera_outlined,
                   label: t.withPhoto,
                   size: 60,
-                  onPressed: () => deliverStop(ref, stop, withPhoto: true),
+                  onPressed: () => deliverStop(context, ref, stop, withPhoto: true),
                 ),
               ],
             ],

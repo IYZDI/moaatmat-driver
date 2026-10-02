@@ -46,6 +46,7 @@ class QueueTiming {
     this.closeGrace = const Duration(seconds: 10),
     this.pollEvery = const Duration(seconds: 20),
     this.chatPollEvery = const Duration(seconds: 8),
+    this.profileEvery = const Duration(minutes: 5),
   });
 
   /// «حُمّل» — قصيرة: خطأٌ في لمس مربّعٍ مجاور يُلحظ فورًا.
@@ -55,6 +56,10 @@ class QueueTiming {
   final Duration closeGrace;
   final Duration pollEvery;
   final Duration chatPollEvery;
+
+  /// كلّ كم يُعاد قراءةُ إعداد المطعم (صورةٌ إلزاميّة؟ البابُ مسموح؟) — المالكُ
+  /// يغيّره من لوحته أثناء النهار، والتطبيقُ مفتوحٌ منذ الصباح.
+  final Duration profileEvery;
 }
 
 const Object _keep = Object();
@@ -67,6 +72,8 @@ class DriverState {
     this.history = const [],
     this.historyLoaded = false,
     this.messages = const {},
+    this.messagesLoaded = const {},
+    this.messagesFailed = const {},
     this.syncing = false,
     this.offline = false,
     this.lastSync,
@@ -86,6 +93,12 @@ class DriverState {
   final List<HistoryEntry> history;
   final bool historyLoaded;
   final Map<String, List<ChatMessage>> messages;
+
+  /// محادثاتٌ قُرئت مرّةً على الأقلّ — قبلها «لا رسائل بعد» ادّعاءٌ لا نعرفه.
+  final Set<String> messagesLoaded;
+
+  /// محادثاتٌ فشلت قراءتُها ولم تُقرأ قطّ — تُعرض «تعذّر التحميل» لا «فارغة».
+  final Set<String> messagesFailed;
   final bool syncing;
   final bool offline;
   final DateTime? lastSync;
@@ -124,6 +137,8 @@ class DriverState {
     List<HistoryEntry>? history,
     bool? historyLoaded,
     Map<String, List<ChatMessage>>? messages,
+    Set<String>? messagesLoaded,
+    Set<String>? messagesFailed,
     bool? syncing,
     bool? offline,
     Object? lastSync = _keep,
@@ -141,6 +156,8 @@ class DriverState {
         history: history ?? this.history,
         historyLoaded: historyLoaded ?? this.historyLoaded,
         messages: messages ?? this.messages,
+        messagesLoaded: messagesLoaded ?? this.messagesLoaded,
+        messagesFailed: messagesFailed ?? this.messagesFailed,
         syncing: syncing ?? this.syncing,
         offline: offline ?? this.offline,
         lastSync: identical(lastSync, _keep) ? this.lastSync : lastSync as DateTime?,
@@ -179,7 +196,8 @@ final selectedGroupKeyProvider = StateProvider<String?>((ref) => null);
 ///
 /// ⚠ وفترةٌ بدأها وانتهت ولم يُقرّ بها («وصلتُ المطبخ») تبقى معروضةً قبل التالية:
 ///   وإلّا قفزت الشاشةُ إلى مسار المساء لحظةَ آخر تسليم، ولم يرَ المندوبُ أبدًا
-///   ملخّصَه ولا قائمةَ الأكياس التي يُعيدها إلى المطبخ.
+///   ملخّصَه ولا قائمةَ الأكياس التي يُعيدها إلى المطبخ. و«بدأها» (`started`)
+///   يُشتقّ أيضًا ممّا أغلقه — بعد دخولٍ جديدٍ يكون «ابدأ» المحلّيُّ قد مُحي.
 final currentGroupProvider = Provider<RouteGroupView?>((ref) {
   final groups = ref.watch(routeGroupsProvider);
   if (groups.isEmpty) return null;
@@ -189,9 +207,8 @@ final currentGroupProvider = Provider<RouteGroupView?>((ref) {
       if (g.key == sel) return g;
     }
   }
-  final local = ref.watch(driverProvider.select((s) => s.local));
   for (final g in groups) {
-    if (g.phase == RoutePhase.done && !g.acked && local.started.contains(g.key)) return g;
+    if (g.phase == RoutePhase.done && !g.acked && g.started) return g;
     if (g.open.isNotEmpty) return g;
   }
   return groups.last;
@@ -238,9 +255,15 @@ class DriverNotifier extends Notifier<DriverState> {
   _Lifecycle? _lifecycle;
   String? _openChat;
   Stop? _lastScanned;
+
+  /// يومُ الهاتف ولحظتُه لآخر قراءةٍ **ناجحة** لإعداد المطعم — لا لمحاولة:
+  /// محاولةٌ فاشلةٌ عُدّت قراءةً كانت تُبقي الإعدادَ الافتراضيّ يومًا كاملًا.
   String? _profileDay;
+  DateTime? _profileAt;
+  bool _profileLoaded = false;
   bool _refreshing = false;
   bool _refreshAgain = false;
+  bool _refreshFull = false;
   bool _signingOut = false;
   bool _broadcastWanted = false;
   bool _disposed = false;
@@ -297,11 +320,27 @@ class DriverNotifier extends Notifier<DriverState> {
     } catch (_) {}
     if (_disposed) return;
     if (!ok) {
+      // طابورُ جلسةٍ ماتت ينتظر صاحبَه — لا يُرسَل بلا رمز.
+      _queue.pause();
       state = state.copyWith(auth: AuthStatus.signedOut);
       return;
     }
+    await _claimQueue();
     state = state.copyWith(auth: AuthStatus.signedIn, profile: _profileFromIdentity());
     await _afterSignIn();
+  }
+
+  /// الطابورُ لمن دخل. جلسةٌ ماتت تترك أفعالَها (تسليماتٌ وصورُها) لصاحبها:
+  /// يعود هو ⇒ تُرسَل؛ يدخل مندوبٌ آخر على هذا الهاتف ⇒ تُمحى، فلا تُرسَل برمزه.
+  Future<void> _claimQueue() async {
+    final id = _repo.identity?.driverId ?? '';
+    final owner = await _queue.store.readOwner();
+    if (owner != null && owner != id) {
+      await _queue.clear();
+      await _localStore.clear();
+      if (!_disposed) state = state.copyWith(local: const RouteLocal());
+    }
+    await _queue.store.writeOwner(id);
   }
 
   /// ملفٌّ مؤقّتٌ من هويّة الدخول حتّى يصل `driver_profile` — الاسمُ والجوالُ
@@ -317,6 +356,7 @@ class DriverNotifier extends Notifier<DriverState> {
 
   Future<void> verifyOtp(String orgCode, String phone, String otp) async {
     await _repo.verifyOtp(orgCode, phone, otp);
+    await _claimQueue();
     state = state.copyWith(auth: AuthStatus.signedIn, profile: _profileFromIdentity());
     await _afterSignIn();
   }
@@ -327,9 +367,10 @@ class DriverNotifier extends Notifier<DriverState> {
     await _msgSub?.cancel();
     _msgSub = _repo.incomingMessages.listen((m) => unawaited(_onIncoming(m)));
     _observeLifecycle();
-    await _loadProfile();
-    await refresh();
-    unawaited(_queue.pump());
+    _profileLoaded = false;
+    await refresh(full: true);
+    // `kick` لا `pump`: يستأنف طابورًا أوقفه موتُ الجلسة السابقة، ويُسقط تباعدَه.
+    _queue.kick();
     if (!_repo.isDemo) unawaited(_registerPush());
   }
 
@@ -358,26 +399,60 @@ class DriverNotifier extends Notifier<DriverState> {
 
   void _onResume() {
     if (!state.signedIn) return;
-    unawaited(refresh());
+    // العودةُ تقرأ إعدادَ المطعم أيضًا: قد يكون غيّره والتطبيقُ في الخلفية.
+    unawaited(refresh(full: true));
     _queue.kick();
     // الإذنُ قد يُمنح من الإعدادات أثناء الغياب — يُحاوَل البثُّ من جديد.
     if (_broadcastWanted && !(_broadcaster?.active ?? false)) unawaited(_syncBroadcast(true));
   }
 
+  /// يقرأ إعدادَ المطعم (الصورة، الباب، الشعار، رقم التواصل، يوم المطعم).
+  ///
+  /// ⚠ فشلُه لا يُعدّ قراءة: الملفُّ المؤقّت من هويّة الدخول (صورةٌ إلزاميّة،
+  ///   بابٌ مسموح، بلا شعارٍ ولا رقم) يبقى حتّى أوّل نجاح، و`refresh` يعيد
+  ///   المحاولة كلّ دورةٍ إلى أن تنجح — لا حتّى يتغيّر تاريخُ الهاتف.
   Future<void> _loadProfile() async {
     try {
       final p = await _repo.profile();
       if (_disposed || !state.signedIn) return;
+      final at = DateTime.now();
+      _profileLoaded = true;
+      _profileAt = at;
+      _profileDay = dayKey(at);
       state = state.copyWith(profile: p);
     } on DriverActionError catch (e) {
       if (e.isSession) return _sessionDied();
     } catch (_) {}
-    final day = dayKey(state.profile?.orgToday ?? DateTime.now());
-    _profileDay = dayKey(DateTime.now());
-    if (state.local.day != day) {
-      final l = await _localStore.load(day);
-      if (!_disposed) state = state.copyWith(local: l);
-    }
+    await _syncLocalDay();
+  }
+
+  /// يُقرأ الإعدادُ من جديد: لم يُقرأ قطّ، أو تغيّر اليوم، أو مضت [QueueTiming.profileEvery].
+  bool get _profileStale {
+    final at = _profileAt;
+    if (!_profileLoaded || at == null) return true;
+    final now = DateTime.now();
+    return _profileDay != dayKey(now) || now.difference(at) >= _timing.profileEvery;
+  }
+
+  /// يومُ المطعم: من قراءةٍ ناجحةٍ اليوم، وإلّا يومُ الهاتف.
+  ///
+  /// ⚠ لا `orgToday` قديمٌ من الأمس: بعد منتصف الليل والشبكةُ لم تعد، كان يبقى
+  ///   يومُ القرارات المحلّيّة أمسَ، فتتخطّى «بدأتُ» و«وصلتُ المطبخ» الأمسِ
+  ///   مرحلةَ تحميل اليوم في فترةٍ بالاسم نفسه.
+  DateTime get _orgToday {
+    final now = DateTime.now();
+    final p = state.profile?.orgToday;
+    if (_profileLoaded && p != null && _profileDay == dayKey(now)) return p;
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  /// قراراتُ المندوب المحلّيّة تتبع يومَ المطعم — يومٌ جديد ⇒ بدايةٌ نظيفة.
+  Future<void> _syncLocalDay() async {
+    if (_disposed || !state.signedIn) return;
+    final day = dayKey(_orgToday);
+    if (state.local.day == day) return;
+    final l = await _localStore.load(day);
+    if (!_disposed && state.signedIn) state = state.copyWith(local: l);
   }
 
   Future<bool> setName(String name) async {
@@ -396,22 +471,35 @@ class DriverNotifier extends Notifier<DriverState> {
     }
   }
 
+  /// أفعالٌ لم تصل الخادمَ بعد (بلا التوابع الآليّة كـ«في الطريق» للتالية).
+  int get unsentCount => _queue.items.where((a) => !a.isFollowUp).length;
+
   /// خروجٌ بطلب المندوب: يُرسَل ما في الطابور أوّلًا — تسليمٌ ضغطه قبل ثوانٍ لا
   /// يضيع لأنّه خرج داخل مهلة التراجع.
-  Future<void> logout() async {
+  ///
+  /// 🚨 ويعيد false **ولا يخرج** إن بقي ما لم يُرسَل (بلا شبكة): الخروجُ يمحو
+  ///   الطابورَ وصورَه، والشريطُ وعده «أفعالك محفوظة». الواجهةُ تسأله بعددها،
+  ///   ولا يُمحى إلّا إن قال صراحةً [discardUnsent].
+  Future<bool> logout({bool discardUnsent = false}) async {
     try {
       await _queue.flush().timeout(const Duration(seconds: 8));
     } catch (_) {}
+    if (!discardUnsent && unsentCount > 0) {
+      _recompute();
+      return false;
+    }
     await _signOutLocal();
+    return true;
   }
 
   Future<void> _sessionDied() async {
     if (_signingOut || !state.signedIn) return;
     _emit('انتهت جلستك — سجّل الدخول من جديد', error: true);
-    await _signOutLocal();
+    // الطابورُ يبقى لصاحبه (`_claimQueue`): رمزٌ أُبطل لا يعني أنّ التسليمَ لم يقع.
+    await _signOutLocal(keepQueue: true);
   }
 
-  Future<void> _signOutLocal() async {
+  Future<void> _signOutLocal({bool keepQueue = false}) async {
     if (_signingOut) return;
     _signingOut = true;
     try {
@@ -424,8 +512,17 @@ class DriverNotifier extends Notifier<DriverState> {
       _broadcastWanted = false;
       await _broadcaster?.stop();
       _broadcaster = null;
-      await _queue.clear();
-      await _localStore.clear();
+      if (keepQueue) {
+        _queue.pause();
+      } else {
+        await _queue.clear();
+        await _localStore.clear();
+      }
+      // الخادمُ يحذف أجهزةَ المندوب مع الجلسة — فالدخولُ التالي يسجّل من جديد.
+      PushService.instance.forget();
+      _profileLoaded = false;
+      _profileAt = null;
+      _profileDay = null;
       try {
         await _repo.signOut();
       } catch (_) {}
@@ -441,19 +538,28 @@ class DriverNotifier extends Notifier<DriverState> {
 
   // ---------- المزامنة ----------
 
-  Future<void> refresh() async {
+  /// يقرأ المسار. [full] يقرأ إعدادَ المطعم معه (السحبُ للتحديث، والعودةُ
+  /// للتطبيق)؛ وبدونه يُقرأ الإعدادُ إن لم يُقرأ قطّ أو قدُم ([_profileStale]).
+  Future<void> refresh({bool full = false}) async {
     if (_disposed || !state.signedIn) return;
     if (_refreshing) {
       _refreshAgain = true;
+      if (full) _refreshFull = true;
       return;
     }
     _refreshing = true;
+    _refreshFull = full;
     state = state.copyWith(syncing: true);
     try {
       do {
         _refreshAgain = false;
-        // يومُ المطعم تغيّر (منتصف الليل والتطبيقُ مفتوح)؟ يُقرأ الملفُّ من جديد.
-        if (_profileDay != dayKey(DateTime.now())) await _loadProfile();
+        if (_refreshFull || _profileStale) {
+          _refreshFull = false;
+          await _loadProfile();
+          if (_disposed || !state.signedIn) return;
+        } else {
+          await _syncLocalDay();
+        }
         final started = DateTime.now();
         final stops = await _repo.route();
         if (_disposed || !state.signedIn) return;
@@ -518,7 +624,9 @@ class DriverNotifier extends Notifier<DriverState> {
     state = next;
     if (!state.signedIn) return;
     _repo.syncMessageChannels({for (final s in eff) if (s.isOpen) s.id});
-    final wanted = !_repo.isDemo && eff.any((s) => s.status == StopStatus.enroute);
+    // العالقُ «في الطريق» من يومٍ سابق لا يُشعل البثّ عند فتح التطبيق.
+    final today = parseDayKey(state.local.day);
+    final wanted = !_repo.isDemo && eff.any((s) => s.status == StopStatus.enroute && !isPastStop(s, today));
     if (wanted != _broadcastWanted) {
       _broadcastWanted = wanted;
       unawaited(_syncBroadcast(wanted));
@@ -549,11 +657,14 @@ class DriverNotifier extends Notifier<DriverState> {
       });
       if (!_broadcaster!.active) {
         try {
-          await _broadcaster!.start();
+          await _broadcaster?.start();
         } catch (_) {}
       }
-    } else if (_broadcaster?.active ?? false) {
-      await _broadcaster!.stop();
+      // انتهى المسارُ أثناء انتظار الإذن ⇒ لا يبقى البثُّ مفتوحًا بلا طالب.
+      if (!_broadcastWanted) await _broadcaster?.stop();
+    } else {
+      // `stop` يُلغي البدءَ الجاريَ أيضًا، لا النشطَ وحده.
+      await _broadcaster?.stop();
     }
     final on = _broadcaster?.active ?? false;
     if (!_disposed && on != state.broadcasting) state = state.copyWith(broadcasting: on);
@@ -579,8 +690,17 @@ class DriverNotifier extends Notifier<DriverState> {
     }
   }
 
+  /// رفضٌ سببُه إعدادُ المطعم ⇒ ما نعرفه منه قديم.
+  static const _policyErrors = {
+    'صورة التسليم إلزاميّة في هذا المطعم',
+    'الترك عند الباب غير مسموح في هذا المطعم',
+  };
+
   void _onPermanent(PendingAction a, String message) {
     _emit(message, error: true);
+    // يُقرأ الإعدادُ الآن: وإلّا فتح «تم التسليم» بلا كاميرا مرّةً بعد مرّة،
+    // ورُفض بعد عشر ثوانٍ في كلّ ضغطة، حتّى يُقتل التطبيق.
+    if (_policyErrors.contains(message)) unawaited(_loadProfile());
     _scheduleRefresh();
   }
 
@@ -591,6 +711,12 @@ class DriverNotifier extends Notifier<DriverState> {
   // ---------- الأفعال ----------
 
   List<RouteGroupView> get _groups => buildRouteGroupViews(state.stops, state.local);
+
+  /// يومُ قرارات المندوب = يومُ المطعم — به يُعرف العالقُ من يومٍ سابق.
+  DateTime? get _today => parseDayKey(state.local.day);
+
+  /// فترةُ المحطّة كما تعرضها الشاشة (العالقُ من أمس في فترته الخاصّة).
+  String _keyOf(Stop s) => groupKeyOf(s, _today);
 
   RouteGroupView? _group(String key) {
     for (final g in _groups) {
@@ -615,10 +741,10 @@ class DriverNotifier extends Notifier<DriverState> {
   Future<void> markLoaded(String stopId) async {
     final s = state.stopById(stopId);
     if (s == null || s.isClosed || s.isLoaded) return;
-    final wasCurrent = _group(s.slotKey)?.current?.id == stopId;
+    final wasCurrent = _group(_keyOf(s))?.current?.id == stopId;
     final a = await _queue.enqueue(stopId, 'picked', grace: _timing.loadGrace);
     // «نعم، معي» على المحطّة الحاليّة يجعلها «في الطريق» — ويُلغى معها إن تراجع.
-    if (wasCurrent) await _advance(s.slotKey, parent: a);
+    if (wasCurrent) await _advance(_keyOf(s), parent: a);
   }
 
   Future<ScanResult> markLoadedByScan(String raw) async {
@@ -682,7 +808,7 @@ class DriverNotifier extends Notifier<DriverState> {
   }
 
   Future<void> _close(Stop s, String action, {List<int>? photo, String? reason}) async {
-    final wasCurrent = _group(s.slotKey)?.current?.id == s.id;
+    final wasCurrent = _group(_keyOf(s))?.current?.id == s.id;
     final a = await _queue.enqueue(s.id, action, photo: photo, reason: reason, grace: _timing.closeGrace);
     if (_repo.isDemo) {
       _demoTrail
@@ -690,13 +816,13 @@ class DriverNotifier extends Notifier<DriverState> {
         ..add(s.id);
       _recompute();
     }
-    if (wasCurrent) await _advance(s.slotKey, parent: a);
+    if (wasCurrent) await _advance(_keyOf(s), parent: a);
   }
 
   Future<void> deferStop(String stopId) async {
     final s = state.stopById(stopId);
     if (s == null || s.isClosed) return;
-    final key = s.slotKey;
+    final key = _keyOf(s);
     final l = state.local;
     _setLocal(l.copyWith(
       deferred: [...l.deferred.where((x) => x != stopId), stopId],
@@ -705,14 +831,15 @@ class DriverNotifier extends Notifier<DriverState> {
     final next = _group(key)?.current;
     // آخرُ مفتوحٍ يبقى حاليًّا — لا معنى لإطفاء تتبّعه ثمّ إشعاله.
     if (next == null || next.id == stopId) return;
-    if (s.status == StopStatus.enroute) await _queue.enqueue(stopId, 'defer');
+    // العالقُ من يومٍ سابق لا يُرسَل له «أجِّل»: يعود «جاهزًا» فيخرج من المسار.
+    if (s.status == StopStatus.enroute && !isPastStop(s, _today)) await _queue.enqueue(stopId, 'defer');
     await _advance(key);
   }
 
   Future<void> goNow(String stopId) async {
     final s = state.stopById(stopId);
     if (s == null || s.isClosed) return;
-    final key = s.slotKey;
+    final key = _keyOf(s);
     final l = state.local;
     _setLocal(l.copyWith(
       pinned: stopId,
@@ -722,7 +849,9 @@ class DriverNotifier extends Notifier<DriverState> {
     // كلُّ ما عداها «في الطريق» يُطفأ: عميلٌ واحدٌ يرى مندوبَه قادمًا.
     final g = _group(key);
     for (final o in g?.open ?? const <Stop>[]) {
-      if (o.id != stopId && o.status == StopStatus.enroute) await _queue.enqueue(o.id, 'defer');
+      if (o.id != stopId && o.status == StopStatus.enroute && !isPastStop(o, _today)) {
+        await _queue.enqueue(o.id, 'defer');
+      }
     }
     await _advance(key);
   }
@@ -753,13 +882,31 @@ class DriverNotifier extends Notifier<DriverState> {
 
   // ---------- المحادثة ----------
 
+  /// يقرأ المحادثة، ويسجّل هل قُرئت قطّ أو فشلت — كي لا تقول الشاشةُ «لا رسائل
+  /// بعد» والعميلُ كتب «اتركه عند الحارس» والشبكةُ ضعيفةٌ عند الباب.
   Future<void> loadMessages(String stopId) async {
     try {
       final msgs = await _repo.messages(stopId);
-      if (!_disposed && state.signedIn) state = state.copyWith(messages: {...state.messages, stopId: msgs});
+      if (!_disposed && state.signedIn) {
+        state = state.copyWith(
+          messages: {...state.messages, stopId: msgs},
+          messagesLoaded: {...state.messagesLoaded, stopId},
+          messagesFailed: {...state.messagesFailed}..remove(stopId),
+        );
+      }
     } on DriverActionError catch (e) {
-      if (e.isSession) await _sessionDied();
-    } catch (_) {}
+      if (e.isSession) return _sessionDied();
+      _chatFailed(stopId);
+    } catch (_) {
+      _chatFailed(stopId);
+    }
+  }
+
+  /// فشلٌ بعد قراءةٍ ناجحة لا يُعلَن: المعروضُ صحيحٌ حتّى آخر قراءة، والاستطلاعُ يعيد.
+  void _chatFailed(String id) {
+    if (_disposed || !state.signedIn) return;
+    if (state.messagesLoaded.contains(id) || state.messagesFailed.contains(id)) return;
+    state = state.copyWith(messagesFailed: {...state.messagesFailed, id});
   }
 
   Future<bool> sendMessage(String stopId, String text) async {

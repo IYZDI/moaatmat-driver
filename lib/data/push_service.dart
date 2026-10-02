@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -90,9 +92,29 @@ class PushService {
     }
   }
 
+  /// رمزُ الجلسة الذي سُجّل الجهازُ به — والذي يحفظ به `onTokenRefresh` الرمزَ الجديد.
+  String? _session;
+  StreamSubscription<String>? _refreshSub;
+
+  /// تنسى هذه الخدمةُ تسجيلَها عند الخروج أو موت الجلسة.
+  ///
+  /// 🚨 `driver_logout` يحذف كلَّ صفوف `driver_device_tokens` للمندوب، والخدمةُ
+  ///   مفردةٌ تعيش بعمر العمليّة: بقي `_registered` صادقًا، فكان الدخولُ التالي
+  ///   بلا إغلاقٍ للتطبيق يتخطّى التسجيل — جلسةٌ بلا جهاز، ولا إشعارَ مسارٍ ولا
+  ///   رسالة، ومفتاحُ «إشعارات المسار» يقول «مفعّل».
+  void forget() {
+    _registered = false;
+    _session = null;
+    unawaited(_refreshSub?.cancel());
+    _refreshSub = null;
+  }
+
   /// طلب الإذن وتسجيل رمز الجهاز — تُستدعى بعد دخول المندوب (آمنة للتكرار).
+  /// جلسةٌ جديدة تُسجَّل دائمًا: التسجيلُ السابق كان لرمزٍ أُبطل.
   Future<void> registerToken(String sessionToken) async {
-    if (!_inited || _registered || _registering) return;
+    if (!_inited || _registering) return;
+    if (_registered && _session == sessionToken) return;
+    _registered = false;
     _registering = true;
     try {
       final messaging = FirebaseMessaging.instance;
@@ -143,8 +165,11 @@ class PushService {
         _lastError = 'save: $e';
         rethrow;
       }
-      messaging.onTokenRefresh.listen((t) => save(t).catchError((_) {}));
+      // مستمعٌ واحد بالجلسة الحاليّة — لا مستمعٌ جديدٌ مع كلّ دخول يحفظ برمزٍ ميّت.
+      await _refreshSub?.cancel();
+      _refreshSub = messaging.onTokenRefresh.listen((t) => save(t).catchError((_) {}));
       _registered = token != null;
+      _session = token != null ? sessionToken : null;
     } catch (e) {
       if (_lastError.isEmpty) _lastError = 'register: $e';
       debugPrint('PushService.registerToken: $e');

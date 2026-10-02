@@ -54,7 +54,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  String _msg(Object e) => e.toString().replaceFirst('Exception: ', '');
+  /// رسائلُ الدخول تولد عربيّةً في طبقة البيانات — تُترجَم بلغة التطبيق.
+  String _msg(Object e) => ref.read(stringsProvider).event(e.toString().replaceFirst('Exception: ', ''));
 
   Future<void> _scanOrg() async {
     final code = await context.push<String>('/scan?mode=org');

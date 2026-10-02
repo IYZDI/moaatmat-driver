@@ -20,6 +20,7 @@ Stop st(
   LatLon? branchPos = const LatLon(24.8121, 46.6402),
   DateTime? pickedAt,
   String? dayId,
+  DateTime? routeDate,
 }) =>
     Stop(
       id: id,
@@ -32,6 +33,7 @@ Stop st(
       branchPos: branchPos,
       pickedAt: pickedAt,
       subscriptionDayId: dayId,
+      routeDate: routeDate,
     );
 
 List<String> ids(List<Stop> l) => [for (final s in l) s.id];
@@ -327,6 +329,121 @@ void main() {
       expect(navigationUri(const Stop(id: 'x', status: StopStatus.ready, customerName: '', address: 'الياسمين'))
           .toString(), contains('/maps/search/'));
       expect(navigationUri(const Stop(id: 'x', status: StopStatus.ready, customerName: '')), isNull);
+    });
+  });
+
+  group('T · التطابق مع الورقة مهما كان ترتيبُ المدخل', () {
+    // القيمُ أخرجها `buildRoutes` في deliveryRoute.js (بعد الفرز بالمعرّف) على
+    // المدخل نفسه بثلاثة ترتيبات — كلُّها أعطت الترتيبَ نفسه.
+    const p = {
+      'd07': LatLon(24.8185, 46.6391), 'd02': LatLon(24.8402, 46.6550), 'd05': LatLon(24.8231, 46.6468),
+      'd09': LatLon(24.8185, 46.6391), 'd04': LatLon(24.7952, 46.6464), 'd03': LatLon(24.7790, 46.6301),
+      'd06': LatLon(24.8231, 46.6468),
+    };
+    List<Stop> input(List<String> order, {LatLon? branchPos}) => [
+          for (final id in order)
+            st(id, lat: p[id]?.lat, lng: p[id]?.lng, slot: 'ص', sort: 1, branchPos: branchPos),
+        ];
+    const orderA = ['d07', 'd02', 'd05', 'd01', 'd09', 'd04', 'd08', 'd03', 'd06'];
+    final orders = [orderA, orderA.reversed.toList(), ['d08', 'd06', 'd03', 'd09', 'd01', 'd04', 'd07', 'd05', 'd02']];
+
+    test('T-1 · فرعٌ بلا إحداثيّات: البدءُ والتعادلُ والذيلُ لا تتبع ترتيبَ الخادم', () {
+      for (final o in orders) {
+        expect(ids(buildGroups(input(o, branchPos: null)).single.all),
+            ['d02', 'd05', 'd06', 'd07', 'd09', 'd04', 'd03', 'd01', 'd08']);
+      }
+    });
+
+    test('T-2 · فرعٌ بموقع: البنايةُ الواحدةُ لعميلين بالترتيب نفسه في الطرفين', () {
+      for (final o in orders) {
+        expect(ids(buildGroups(input(o, branchPos: branch)).single.all),
+            ['d07', 'd09', 'd05', 'd06', 'd02', 'd04', 'd03', 'd01', 'd08']);
+      }
+    });
+  });
+
+  group('D · بعد دخولٍ جديد، والعالقُ من يومٍ سابق', () {
+    final today = DateTime(2026, 10, 2);
+    final yesterday = DateTime(2026, 10, 1);
+    const local = RouteLocal(day: '2026-10-02');
+
+    test('D-1 · مغلقٌ بعد تحميل ⇒ بدأ (لا عودةَ إلى «حمّل أكياسك»)، ومغلقٌ بلا تحميلٍ لا يكفي', () {
+      final s = [
+        st('a', slot: 'ص', status: StopStatus.delivered, pickedAt: today),
+        st('b', slot: 'ص', status: StopStatus.picked, pickedAt: today),
+        st('c', slot: 'ص', pickedAt: today),
+      ];
+      final v = buildRouteGroupViews(s, local).single;
+      expect(v.phase, RoutePhase.onRoute);
+      expect(v.started, isTrue);
+
+      final staffClosed = [st('a', slot: 'ص', status: StopStatus.delivered), st('b', slot: 'ص')];
+      final w = buildRouteGroupViews(staffClosed, local).single;
+      expect(w.phase, RoutePhase.loading, reason: 'أغلقه فريقُ المطعم قبل أن يحمّل المندوبُ شيئًا');
+      expect(w.started, isFalse);
+
+      final allClosed = [st('a', slot: 'ص', status: StopStatus.delivered, pickedAt: today)];
+      final x = buildRouteGroupViews(allClosed, local).single;
+      expect(x.phase, RoutePhase.done);
+      expect(x.started, isTrue, reason: 'فيظهر ملخّصُ النهاية و«وصلتُ المطبخ»');
+    });
+
+    test('D-2 · «في الطريق» من الأمس في فترةٍ خاصّة آخرًا — وصباحُ اليوم يبقى في التحميل', () {
+      final s = [
+        st('old', slot: 'ص', sort: 1, status: StopStatus.enroute, pickedAt: yesterday, routeDate: yesterday),
+        st('a', slot: 'ص', sort: 1, routeDate: today),
+        st('b', slot: 'ص', sort: 1, routeDate: today),
+      ];
+      final views = buildRouteGroupViews(s, local);
+      expect([for (final g in views) g.key], ['ص', pastGroupKey]);
+      expect(views.first.phase, RoutePhase.loading);
+      expect(ids(views.first.all), ['a', 'b']);
+      expect(views.last.past, isTrue);
+      expect(views.last.phase, RoutePhase.onRoute);
+      expect(views.last.slotLabel, isNull);
+      expect(isPastStop(s[0], today), isTrue);
+      expect(groupKeyOf(s[1], today), 'ص');
+
+      // أُغلق العالق ⇒ تختفي فترتُه (لا ملخّصَ لمسارٍ مضى).
+      final closed = [s[0].copyWith(status: StopStatus.delivered), s[1], s[2]];
+      expect([for (final g in buildRouteGroupViews(closed, local)) g.key], ['ص']);
+      // بلا يومٍ معروف لا يُخمَّن شيء.
+      expect(buildRouteGroupViews(s, const RouteLocal()).single.key, 'ص');
+    });
+
+    test('D-3 · parseDayKey', () {
+      expect(parseDayKey('2026-10-02'), today);
+      expect(parseDayKey(null), isNull);
+      expect(parseDayKey('x'), isNull);
+    });
+  });
+
+  group('H · عدُّ السجلّ المقطوع', () {
+    final today = DateTime(2026, 10, 20);
+    HistoryEntry h(int i, DateTime d, {bool delivered = true}) =>
+        HistoryEntry(id: 'h$i', customerName: '', delivered: delivered, routeDate: d);
+    DateTime dayOf(HistoryEntry e) => e.routeDate!;
+
+    test('H-1 · قائمةٌ لم تمتلئ ⇒ عددٌ دقيق', () {
+      final list = [h(1, today), h(2, today, delivered: false), h(3, DateTime(2026, 10, 3)), h(4, DateTime(2026, 9, 30))];
+      expect(deliveredSince(list, DateTime(2026, 10), dayOf), (count: 2, atLeast: false));
+      expect(deliveredSince(list, today, dayOf), (count: 1, atLeast: false));
+    });
+
+    test('H-2 · ممتلئةٌ وأقدمُها داخل الشهر ⇒ حدٌّ أدنى؛ وأقدمُها قبله ⇒ دقيق', () {
+      final full = [for (var i = 0; i < 5; i++) h(i, DateTime(2026, 10, 10 + i))];
+      expect(deliveredSince(full, DateTime(2026, 10), dayOf, cap: 5), (count: 5, atLeast: true));
+      expect(deliveredSince(full, today, dayOf, cap: 5), (count: 0, atLeast: false));
+      final reaches = [...full.take(4), h(9, DateTime(2026, 9, 28))];
+      expect(deliveredSince(reaches, DateTime(2026, 10), dayOf, cap: 5), (count: 4, atLeast: false));
+      expect(historyRowCap, 300);
+    });
+
+    test('H-3 · «عملية»', () {
+      expect(arCount(1, ArNoun.action), 'عملية واحدة');
+      expect(arCount(2, ArNoun.action), 'عمليتان');
+      expect(arCount(3, ArNoun.action), '3 عمليات');
+      expect(enCount(1, ArNoun.action), '1 action');
     });
   });
 }

@@ -26,6 +26,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _notif = true;
   bool _notifBusy = false;
 
+  /// الخروجُ يرسل الطابورَ أوّلًا (حتّى ٨ ثوانٍ) — الزرُّ يدور ولا يُضغط مرّتين.
+  bool _loggingOut = false;
+
   @override
   void initState() {
     super.initState();
@@ -87,9 +90,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ),
     );
-    if (go != true) return;
+    if (go != true || !mounted) return;
     // المُوجِّهُ يعيد التوجيه إلى الدخول حين تتغيّر حالةُ الجلسة.
-    await ref.read(driverProvider.notifier).logout();
+    final n = ref.read(driverProvider.notifier);
+    setState(() => _loggingOut = true);
+    try {
+      if (await n.logout()) return;
+      if (!mounted) return;
+      // بقي ما لم يُرسَل (بلا شبكة): الخروجُ يمحوه وصورَه. الافتراضيُّ البقاء.
+      final drop = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(t.unsentTitle),
+          content: Text(t.unsentBody(n.unsentCount), style: const TextStyle(fontSize: TextSizes.body, height: 1.6)),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: ctx.pal.dangerText),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(t.signOutAnyway),
+            ),
+            FilledButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(t.staySignedIn)),
+          ],
+        ),
+      );
+      if (drop == true) await n.logout(discardUnsent: true);
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   @override
@@ -232,7 +259,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            BigButton(label: t.signOut, icon: Icons.logout, tone: Tone.danger, outlined: true, onPressed: _logout),
+            BigButton(
+                label: t.signOut,
+                icon: Icons.logout,
+                tone: Tone.danger,
+                outlined: true,
+                busy: _loggingOut,
+                onPressed: _loggingOut ? null : _logout),
             const SizedBox(height: 14),
             Text(t.version(kAppVersion),
                 textAlign: TextAlign.center, style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),

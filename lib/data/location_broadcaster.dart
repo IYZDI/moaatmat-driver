@@ -14,13 +14,28 @@ class LocationBroadcaster {
   StreamSubscription<Position>? _sub;
   bool _sending = false;
 
+  /// بدءٌ جارٍ — يُعاد لكلّ من ينادي `start` أثناءه.
+  Future<bool>? _starting;
+
+  /// يزيد مع كلّ `stop`: بدءٌ انتظر الإذنَ ثمّ وجد الجيلَ تغيّر لا يشترك.
+  int _gen = 0;
+
   LocationBroadcaster(this.repo, {this.onPosition});
 
   bool get active => _sub != null;
 
   /// يطلب الإذن ويبدأ البثّ. يعيد false إن رُفض الإذن أو تعذّر.
-  Future<bool> start() async {
-    if (_sub != null) return true;
+  ///
+  /// ⚠ بدءٌ واحدٌ في كلّ وقت: نافذةُ الإذن تُغيّب التطبيقَ ثمّ تُعيده، فينادي
+  ///   «العودة» `start` ثانيةً والأوّلُ ما زال ينتظر الإذن. لو مضى الاثنان لكتب
+  ///   الثاني فوق اشتراك الأوّل، فيبقى GPS يعمل ويبثّ بعد نهاية المسار وبعد الخروج.
+  Future<bool> start() {
+    if (_sub != null) return Future.value(true);
+    return _starting ??= _start().whenComplete(() => _starting = null);
+  }
+
+  Future<bool> _start() async {
+    final gen = _gen;
     if (!await Geolocator.isLocationServiceEnabled()) return false;
 
     var perm = await Geolocator.checkPermission();
@@ -36,6 +51,8 @@ class LocationBroadcaster {
       final upgraded = await Geolocator.requestPermission();
       if (upgraded == LocationPermission.always) perm = upgraded;
     }
+    // أُوقف أثناء انتظار الإذن (انتهى المسار أو خرج) — لا يُشترك.
+    if (gen != _gen || _sub != null) return _sub != null;
 
     _sub = Geolocator.getPositionStream(
       locationSettings: _locationSettings(),
@@ -54,6 +71,7 @@ class LocationBroadcaster {
   }
 
   Future<void> stop() async {
+    _gen++;
     await _sub?.cancel();
     _sub = null;
   }

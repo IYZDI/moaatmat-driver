@@ -31,13 +31,14 @@ class Rig {
       : repo = MockDriverRepository(latency: Duration.zero, photoRequired: photoRequired, doorAllowed: doorAllowed) {
     c = ProviderContainer(overrides: [
       driverRepositoryProvider.overrideWithValue(repo),
-      queueStoreProvider.overrideWithValue(MemoryQueueStore()),
+      queueStoreProvider.overrideWithValue(store),
       queueTimingProvider.overrideWithValue(timing),
     ]);
     sub = n.events.listen(events.add);
   }
 
   final MockDriverRepository repo;
+  final store = MemoryQueueStore();
   late final ProviderContainer c;
   final events = <UiEvent>[];
   late final StreamSubscription<UiEvent> sub;
@@ -359,5 +360,138 @@ void main() {
     await r.n.loadHistory();
     expect(r.s.historyLoaded, isTrue);
     expect(r.s.history.length, greaterThan(25));
+  });
+
+  test('S-15 · إعدادُ المطعم: فشلُ أوّل قراءةٍ يُعاد، والسحبُ يلتقط تغييرَه، ورفضُ الإعداد يحدّثه', () async {
+    final r = Rig(photoRequired: false);
+    addTearDown(r.dispose);
+    await until(() => r.s.auth == AuthStatus.signedOut);
+    r.repo.offline = true; // قبوٌ بلا إشارة عند فتح التطبيق
+    await r.n.verifyOtp('DEMO', '0500000099', '1234');
+    expect(r.s.profile?.orgToday, isNull, reason: 'ملفُّ الهويّة المؤقّت');
+    expect(r.s.profile?.photoRequired, isTrue, reason: 'الأحوطُ حتّى يُقرأ');
+
+    r.repo.offline = false;
+    await r.n.refresh(); // الاستطلاعُ العاديّ — لا «كامل»
+    expect(r.s.profile?.orgToday, isNotNull, reason: 'لم يُقرأ قطّ ⇒ يُعاد مع كلّ تحديث');
+    expect(r.s.profile?.photoRequired, isFalse);
+
+    r.repo.photoRequired = true; // المالكُ غيّره من اللوحة
+    await r.n.refresh();
+    expect(r.s.profile?.photoRequired, isFalse, reason: 'داخل مهلة الخمس دقائق');
+    await r.n.refresh(full: true); // سحبٌ للتحديث أو عودةٌ للتطبيق
+    expect(r.s.profile?.photoRequired, isTrue);
+
+    final order = await r.loadAndStart();
+    expect(r.s.profile?.doorAllowed, isTrue);
+    r.repo.doorAllowed = false;
+    await r.n.leaveAtDoor(order[0], const [1]);
+    await until(() => r.s.profile?.doorAllowed == false, what: 'الرفضُ يُعيد قراءة الإعداد');
+  });
+
+  test('S-16 · الخروجُ بلا شبكة لا يمحو ما لم يُرسَل إلّا بإذنٍ صريح', () async {
+    final r = Rig();
+    addTearDown(r.dispose);
+    await r.signIn();
+    final first = r.morning.open.first;
+    r.repo.offline = true;
+    await r.n.markLoaded(first.id);
+    await until(() => r.s.offline);
+    expect(await r.n.logout(), isFalse);
+    expect(r.s.auth, AuthStatus.signedIn);
+    expect(r.n.unsentCount, 1);
+
+    // عادت الشبكةُ والفعلُ ينتظر تباعدَه — الخروجُ يرسله لا يتخطّاه.
+    r.repo.offline = false;
+    expect(await r.n.logout(), isTrue);
+    expect(r.repo.pickedOf(first.id), isTrue);
+    expect(r.s.auth, AuthStatus.signedOut);
+
+    await r.n.verifyOtp('DEMO', '0500000099', '1234');
+    final second = r.morning.open.firstWhere((x) => !x.isLoaded);
+    r.repo.offline = true;
+    await r.n.markLoaded(second.id);
+    expect(await r.n.logout(discardUnsent: true), isTrue);
+    expect(r.s.auth, AuthStatus.signedOut);
+    expect(r.n.unsentCount, 0);
+  });
+
+  test('S-17 · موتُ الجلسة يُبقي الطابورَ لصاحبه، ويمحوه إن دخل غيرُه', () async {
+    final r = Rig();
+    addTearDown(r.dispose);
+    await r.signIn();
+    final first = r.morning.open.first;
+    r.repo.offline = true;
+    await r.n.markLoaded(first.id);
+    await until(() => r.s.offline);
+    r.repo.offline = false;
+    await r.repo.signOut(); // أُبطل الرمزُ من مكانٍ آخر
+    await r.n.refresh();
+    await until(() => r.s.auth == AuthStatus.signedOut);
+    expect(r.n.unsentCount, 1, reason: 'التسليمُ وقع — الرمزُ وحده مات');
+    expect(r.repo.pickedOf(first.id), isFalse);
+
+    await r.n.verifyOtp('DEMO', '0500000099', '1234');
+    await until(() => r.repo.pickedOf(first.id), what: 'أُرسل بعد عودة صاحبه');
+
+    // مندوبٌ آخر على الهاتف نفسه: أفعالُ الأوّل لا تُرسَل برمزه.
+    final second = r.morning.open.firstWhere((x) => !x.isLoaded);
+    r.repo.offline = true;
+    await r.n.markLoaded(second.id);
+    await until(() => r.s.offline);
+    r.repo.offline = false;
+    await r.repo.signOut();
+    await r.n.refresh();
+    await until(() => r.s.auth == AuthStatus.signedOut);
+    r.store.owner = 'someone-else';
+    await r.n.verifyOtp('DEMO', '0500000099', '1234');
+    expect(r.n.unsentCount, 0);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(r.repo.pickedOf(second.id), isFalse);
+  });
+
+  test('S-18 · المحادثة: «لا رسائل بعد» بعد قراءةٍ ناجحة فقط', () async {
+    final r = Rig();
+    addTearDown(r.dispose);
+    await r.signIn();
+    final s12 = r.s.stops.firstWhere((x) => x.bagNo == 12);
+    expect(r.s.messagesLoaded, isNot(contains(s12.id)));
+    r.repo.offline = true;
+    await r.n.loadMessages(s12.id);
+    expect(r.s.messagesFailed, contains(s12.id));
+    expect(r.s.messagesLoaded, isNot(contains(s12.id)));
+    r.repo.offline = false;
+    await r.n.loadMessages(s12.id);
+    expect(r.s.messagesLoaded, contains(s12.id));
+    expect(r.s.messagesFailed, isNot(contains(s12.id)));
+    r.repo.offline = true;
+    await r.n.loadMessages(s12.id);
+    expect(r.s.messagesFailed, isNot(contains(s12.id)), reason: 'المعروضُ صحيحٌ حتّى آخر قراءة');
+    expect(r.s.messages[s12.id], hasLength(2));
+  });
+
+  test('S-19 · دخولٌ جديدٌ في منتصف المسار: التسليمُ التالي يوجّه ما بعده، والملخّصُ يظهر', () async {
+    final r = Rig(photoRequired: false);
+    addTearDown(r.dispose);
+    await r.signIn();
+    final order = await r.loadAndStart(load: 8);
+    await r.n.deliver(order[0]);
+    await until(() => r.repo.statusOf(order[0]) == 'delivered' && r.repo.statusOf(order[1]) == 'out_for_delivery');
+    await until(() => r.s.pending.isEmpty);
+    expect(await r.n.logout(), isTrue);
+
+    await r.n.verifyOtp('DEMO', '0500000099', '1234');
+    expect(r.s.local.started, isEmpty, reason: '«ابدأ» المحلّيُّ مُحي مع الخروج');
+    expect(r.morning.phase, RoutePhase.onRoute);
+    await r.n.deliver(order[1]);
+    expect(r.morning.phase, RoutePhase.onRoute, reason: 'لا عودةَ إلى «حمّل أكياسك»');
+    expect(r.morning.current?.id, order[2]);
+    expect(r.stop(order[2]).status, StopStatus.enroute);
+    for (final id in order.skip(2)) {
+      await r.n.deliver(id);
+    }
+    expect(r.morning.phase, RoutePhase.done);
+    expect(r.c.read(currentGroupProvider)?.key, MockDriverRepository.morning, reason: 'ملخّصُ النهاية قبل المساء');
+    await until(() => r.s.pending.isEmpty, timeout: const Duration(seconds: 10));
   });
 }

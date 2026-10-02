@@ -48,6 +48,31 @@ Future<Uint8List> drawNumberedMarker(String label, {required Color fill, require
 
 LatLng _ll(LatLon p) => LatLng(p.lat, p.lng);
 
+/// نمطُ الخريطة الليليّ (أسلوبُ «Night» من Google) — يُمرَّر لـ`GoogleMap.style`
+/// حين يكون المظهرُ داكنًا.
+const darkMapStyle = '''
+[
+  {"elementType":"geometry","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.stroke","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.fill","stylers":[{"color":"#746855"}]},
+  {"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#263c3f"}]},
+  {"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#6b9a76"}]},
+  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#38414e"}]},
+  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#212a37"}]},
+  {"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#9ca5b3"}]},
+  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#746855"}]},
+  {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#1f2835"}]},
+  {"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#f3d19c"}]},
+  {"featureType":"transit","elementType":"geometry","stylers":[{"color":"#2f3948"}]},
+  {"featureType":"transit.station","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#17263c"}]},
+  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#515c6d"}]},
+  {"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#17263c"}]}
+]
+''';
+
 /// ============================================================================
 /// خريطةُ المسار: المحطّاتُ المفتوحة مرقّمةً بترتيب المسار (الحاليّة رقم 1
 /// وبلون التنقّل)، والمغلقةُ رماديّة، وخطٌّ يصلها من موقعي أو من الفرع.
@@ -87,10 +112,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// الدبابيسُ تُرسم بلا تزامن، فتُعاد فقط حين يتغيّر ما ترسمه (الترتيب والحالة).
   Future<void> _rebuildMarkers(RouteGroupView g, Palette p, L t) async {
     final current = g.current ?? (g.open.isEmpty ? null : g.open.first);
+    // ألوانُ الدبّوس من السطح كذلك — `primary` واحدٌ في المظهرين، فبدون السطح
+    // بقيت الدبابيسُ بيضاءَ على خريطةٍ داكنة بعد تبديل المظهر.
     final sig = [
       for (final s in g.open) '${s.id}:${s.id == current?.id}',
       for (final s in g.closed) '${s.id}:c',
       p.primary.toARGB32(),
+      p.surface.toARGB32(),
+      p.borderStrong.toARGB32(),
     ].join('|');
     if (sig == _markersFor) return;
     _markersFor = sig;
@@ -183,6 +212,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     } else {
       final first = line.isNotEmpty ? line.first : _riyadh;
       mapLayer = GoogleMap(
+        // مسارُ المساء في السيّارة ليلًا: خريطةٌ نهاريّة ساطعة تحت بطاقةٍ داكنة تُعمي.
+        style: Theme.of(context).brightness == Brightness.dark ? darkMapStyle : null,
         initialCameraPosition: CameraPosition(target: current?.pos != null ? _ll(current!.pos!) : first, zoom: 13),
         onMapCreated: (c) {
           _map = c;
@@ -221,11 +252,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     onTap: () => context.canPop() ? context.pop() : context.go('/route'),
                   ),
                   const Spacer(),
-                  if (Env.hasMaps && origin != null)
+                  // «موقعي» بموقعٍ حقيقيّ فقط — الفرعُ بديلٌ لبداية الخطّ، لا «أنا».
+                  if (Env.hasMaps && s.myPos != null)
                     _RoundButton(
                       icon: Icons.my_location,
                       tooltip: t.myLocation,
-                      onTap: () => _map?.animateCamera(CameraUpdate.newLatLngZoom(_ll(origin), 15)),
+                      onTap: () => _map?.animateCamera(CameraUpdate.newLatLngZoom(_ll(s.myPos!), 15)),
                     ),
                 ],
               ),

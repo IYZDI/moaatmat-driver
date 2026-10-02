@@ -6,6 +6,7 @@ import '../l10n.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets/bag_badge.dart';
+import '../widgets/buttons.dart';
 import '../widgets/common.dart';
 import '../widgets/stop_card.dart' show callStop;
 
@@ -30,6 +31,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
+  bool _retrying = false;
+
+  Future<void> _retry() async {
+    setState(() => _retrying = true);
+    await _n.loadMessages(widget.stopId);
+    if (mounted) setState(() => _retrying = false);
+  }
 
   /// يُلتقط مرّةً: `ref` لا يُستعمل بعد تفكيك الشاشة.
   late final DriverNotifier _n;
@@ -52,18 +60,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
-  Future<void> _send(String text) async {
+  /// [fromField]: النصُّ من الحقل (يُفرَّغ ويُعاد إن فشل). الردُّ السريعُ لا يمسّ
+  /// الحقل — كان يمحو ما كتبه المندوبُ («أنا عند البوابة الخلفية») ويرسل غيرَه.
+  Future<void> _send(String text, {bool fromField = false}) async {
     final body = text.trim();
     if (body.isEmpty || _sending) return;
     final t = ref.read(stringsProvider);
     setState(() => _sending = true);
-    _input.clear();
+    if (fromField) _input.clear();
     final ok = await _n.sendMessage(widget.stopId, body);
     if (!mounted) return;
     setState(() => _sending = false);
     if (!ok) {
       // النصُّ يعود إلى الحقل: لا تضيع رسالةٌ كتبها المندوبُ واقفًا عند الباب.
-      if (_input.text.isEmpty) _input.text = body;
+      if (fromField && _input.text.isEmpty) _input.text = body;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(t.messageNotSent)));
@@ -82,6 +92,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final match = s.stops.where((x) => x.id == widget.stopId);
     final Stop? stop = match.isEmpty ? null : match.first;
     final messages = s.messages[widget.stopId] ?? const <ChatMessage>[];
+    final loaded = s.messagesLoaded.contains(widget.stopId);
+    final failed = s.messagesFailed.contains(widget.stopId);
     final name = (stop?.customerName.trim().isNotEmpty ?? false) ? stop!.customerName.trim() : t.customer;
     final phone = stop?.phone?.trim() ?? '';
 
@@ -112,10 +124,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       body: Column(
         children: [
           Expanded(
+            // «لا رسائل بعد» بعد قراءةٍ ناجحةٍ فارغة فقط — لا أثناء التحميل ولا بعد فشله.
             child: messages.isEmpty
-                ? Center(
-                    child: EmptyState(icon: Icons.chat_bubble_outline, title: name, body: t.chatEmpty),
-                  )
+                ? (!loaded && !failed)
+                    ? const Center(child: CircularProgressIndicator())
+                    : _Fill(
+                        child: !loaded
+                            ? EmptyState(
+                                icon: Icons.cloud_off_outlined,
+                                title: t.chatLoadFailed,
+                                body: t.chatLoadFailedBody,
+                                action: BigButton(
+                                  label: t.retry,
+                                  icon: Icons.refresh,
+                                  outlined: true,
+                                  busy: _retrying,
+                                  onPressed: _retry,
+                                ),
+                              )
+                            : EmptyState(icon: Icons.chat_bubble_outline, title: name, body: t.chatEmpty),
+                      )
                 : ListView.builder(
                     controller: _scroll,
                     // الأحدثُ في الأسفل قربَ الإبهام، والقائمةُ مقلوبةٌ فلا قفزَ عند الوصول.
@@ -156,7 +184,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
-                      onSubmitted: _send,
+                      onSubmitted: (v) => _send(v, fromField: true),
                       decoration: InputDecoration(hintText: t.typeMessage),
                     ),
                   ),
@@ -164,7 +192,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   IconButton.filled(
                     tooltip: t.send,
                     constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
-                    onPressed: _sending ? null : () => _send(_input.text),
+                    onPressed: _sending ? null : () => _send(_input.text, fromField: true),
                     // سهمُ الإرسال يشير إلى جهة القراءة — يُقلب في العربيّة.
                     icon: const Icon(Icons.send),
                   ),
@@ -176,6 +204,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
   }
+}
+
+/// يملأ المساحةَ ويتوسّطها، ويتمرّر إن ضاقت: مع لوحة المفاتيح لا يبقى فوق
+/// الردود السريعة إلّا ~200 نقطة على هاتفٍ صغير، والحالةُ الفارغة أطولُ منها.
+class _Fill extends StatelessWidget {
+  const _Fill({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, c) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: c.maxHeight),
+            child: Center(child: child),
+          ),
+        ),
+      );
 }
 
 /// المندوبُ في جهة البداية وبلون السطح، والعميلُ في جهة النهاية وبالنيليّ.

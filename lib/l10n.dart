@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'route_logic.dart' show ArNoun, arDeliveries, arMeals, arStops, arTimes, enCount;
+import 'route_logic.dart' show ArNoun, RouteGroupView, arCount, arDeliveries, arMeals, arStops, arTimes, enCount;
 
 /// ============================================================================
 /// نصوصُ التطبيق ولغتُه ومظهرُه.
@@ -116,6 +116,11 @@ class L {
   String get later => _('لاحقًا', 'Later');
   String get retry => _('أعد المحاولة', 'Try again');
   String get noSlot => _('بلا فترة', 'No slot');
+  String get earlierDay => _('من يومٍ سابق', 'From an earlier day');
+
+  /// اسمُ الفترة على الرقاقة والملخّص: الاسمُ كما يراه العميل، أو «بلا فترة»،
+  /// أو «من يومٍ سابق» لما بقي في الطريق من مسارٍ مضى.
+  String groupName(RouteGroupView g) => g.past ? earlierDay : (g.slotLabel ?? noSlot);
   String get today => _('اليوم', 'Today');
   String get yesterday => _('أمس', 'Yesterday');
   String get sending => _('يُرسَل…', 'Sending…');
@@ -126,7 +131,20 @@ class L {
   /// تخمينُ ترجمةٍ لجملةٍ كتبها الخادم أسوأ من عرضها بلغتها.
   String event(String message) {
     if (ar) return message;
+    // «الخادم لم يقبل الطلب (PGRST202) — …» يحمل رمزًا متغيّرًا فلا يُطابَق حرفًا.
+    final rejected = RegExp(r'^الخادم لم يقبل الطلب \((.*)\) — حدّث التطبيق أو تواصل مع المطعم$').firstMatch(message);
+    if (rejected != null) {
+      return 'The server rejected the request (${rejected.group(1)}) — update the app or contact the restaurant';
+    }
     const en = {
+      // الدخول — نصوصٌ يولّدها التطبيقُ نفسُه لا الخادم.
+      'رمز التحقّق غير صحيح': 'The verification code is incorrect',
+      'تعذّر الدخول': "Couldn't sign in",
+      'تعذّر إرسال الرمز — تحقّق من البيانات': "Couldn't send the code — check your details",
+      'أدخل رمز المطعم': 'Enter the restaurant code',
+      'رقم الجوال غير صحيح': 'The mobile number is incorrect',
+      'لا اتصال بالخادم — سيُعاد الإرسال تلقائيًّا': "Can't reach the server — it will retry automatically",
+      'تعذّر رفع صورة التسليم — سيُعاد': "Couldn't upload the delivery photo — it will retry",
       'انتهت جلستك — سجّل الدخول من جديد': 'Your session ended — sign in again',
       'تعذّر تحميل السجلّ — تحقّق من الاتصال': "Couldn't load history — check your connection",
       'اختر سبب التعذّر': 'Choose a reason',
@@ -155,7 +173,9 @@ class L {
   String get phone => _('رقم الجوال', 'Mobile number');
   String get sendOtp => _('أرسل رمز التحقّق', 'Send verification code');
   String get enterOrgAndPhone => _('أدخل رمز المطعم ورقم الجوال', 'Enter the restaurant code and mobile number');
-  String sentTo(String to) => _('أرسلناه إلى $to', 'Sent to $to');
+  /// الرقمُ معزولٌ اتّجاهًا: «‎+966 50 123 4567‎» من الملء التلقائيّ تنقلب مجموعاتُه
+  /// داخل جملةٍ عربيّة إلى «4567 123 50 966+».
+  String sentTo(String to) => _('أرسلناه إلى ${iso(to)}', 'Sent to $to');
   String get otpLabel => _('رمز التحقّق', 'Verification code');
   String get changeNumber => _('تغيير الرقم', 'Change number');
   String get signIn => _('دخول', 'Sign in');
@@ -262,6 +282,8 @@ class L {
   String get confirmFailure => _('تأكيد التعذّر', 'Confirm failure');
   String get moveToEnd => _('أجّله إلى آخر المسار', 'Move to end of route');
   String get undoWithin10 => _('تستطيع التراجع خلال 10 ثوانٍ', 'You can undo within 10 seconds');
+  String get deferHint => _('تجدها في آخر قائمة «التالي» — المسها ثمّ «اذهب إليها الآن» لتعود إليها',
+      'You\'ll find it at the end of "Next" — tap it, then "Go there now" to return');
   String get writeReason => _('اكتب السبب أوّلًا', 'Write the reason first');
 
   // ---------- الماسح ----------
@@ -277,6 +299,11 @@ class L {
       'No camera permission. Open Settings and allow the camera to scan labels.');
   String get torch => _('الكشّاف', 'Flashlight');
   String get cameraError =>_('تعذّر تشغيل الكاميرا', "Couldn't start the camera");
+  String get cameraDeniedPhoto => _('لا إذن للكاميرا — اسمح بها من الإعدادات لتصوير التسليم',
+      'No camera permission — allow it in Settings to photograph the delivery');
+  String get cameraDeniedRequired => _('لا إذن للكاميرا — اسمح بها من الإعدادات؛ صورة التسليم إلزاميّة في هذا المطعم',
+      'No camera permission — allow it in Settings; this restaurant requires a delivery photo');
+  String get openSettings => _('الإعدادات', 'Settings');
 
   // ---------- الخريطة ----------
   String get mapUnavailableTitle => _('الخريطة غير متاحة في هذا الإصدار', 'Map unavailable in this build');
@@ -291,6 +318,9 @@ class L {
   String get typeMessage => _('اكتب رسالة…', 'Type a message…');
   String get send => _('إرسال', 'Send');
   String get messageNotSent => _('لم تُرسَل الرسالة', 'Message not sent');
+  String get chatLoadFailed => _('تعذّر تحميل الرسائل', "Couldn't load messages");
+  String get chatLoadFailedBody =>
+      _('قد يكون العميل كتب لك — تحقّق من الاتصال وأعد المحاولة.', 'The customer may have written — check your connection and retry.');
   List<String> get quickReplies => ar
       ? const ['وصلت، أنا عند الباب', 'أنا في الطريق، أصل خلال 10 دقائق', 'لم أجد العنوان، أرسل لي موقعك', 'تركت طلبك عند الباب']
       : const ["I've arrived, I'm at the door", "On my way, there in 10 minutes", "Couldn't find the address, send me your location", 'I left your order at the door'];
@@ -300,6 +330,11 @@ class L {
   String get noHistory => _('لا توصيلات في سجلّك بعد', 'No deliveries in your history yet');
   String deliveredAt(String t) => _('سُلّم $t', 'Delivered $t');
   String doorAt(String t) => _('عند الباب · $t', 'At the door · $t');
+
+  /// «300+» معزولٌ اتّجاهًا — في سطرٍ عربيّ تنقلب إلى «+300».
+  String atLeast(int n) => iso('$n+');
+  String historyCapped(int n) => _('السجلّ يعرض آخر $n توصيلة فقط — العدد الكامل لدى المطعم',
+      'History shows only the last $n deliveries — the restaurant has the full count');
 
   // ---------- الحساب ----------
   String get photoPolicy => _('صورة التسليم', 'Delivery photo');
@@ -322,6 +357,12 @@ class L {
   String version(String v) => _('الإصدار $v', 'Version $v');
   String get signOut => _('تسجيل الخروج', 'Sign out');
   String get signOutConfirm => _('ستحتاج رمز تحقّق جديدًا للدخول', "You'll need a new verification code to sign in");
+  String get unsentTitle => _('لم يُرسَل كلُّ شيء', 'Not everything was sent');
+  String unsentBody(int n) => ar
+      ? 'لديك ${arCount(n, ArNoun.action)} لم تُرسَل بعد (لا اتصال). ستضيع إن خرجت الآن — ابقَ حتّى يعود الاتصال.'
+      : 'You have ${enCount(n, ArNoun.action)} not sent yet (offline). They will be lost if you sign out now — stay until you\'re back online.';
+  String get staySignedIn => _('ابقَ', 'Stay');
+  String get signOutAnyway => _('اخرج وتضيع', 'Sign out and lose them');
   String get driverFallback => _('مندوب', 'Driver');
 
   // ---------- الوقت والتاريخ ----------
