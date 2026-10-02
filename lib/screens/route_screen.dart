@@ -174,12 +174,26 @@ class _LoadingActions extends ConsumerWidget {
           ),
           const SizedBox(width: 10),
           // المسحُ أيقونةٌ بكلمةٍ قصيرة: الزرُّ الأعرضُ هو الفعلُ الذي يُنهي هذه المرحلة.
-          Expanded(
-            child: BigButton(
-              label: t.scanShort,
-              icon: Icons.qr_code_scanner,
-              outlined: true,
+          // الأيقونةُ فوق الكلمة: بجانبها كانت الكلمةُ تُقصّ إلى «ام…» في ثلث العرض.
+          SizedBox(
+            width: 92,
+            height: 56,
+            child: OutlinedButton(
               onPressed: () => context.push('/scan?mode=bags'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                foregroundColor: p.primaryText,
+                backgroundColor: p.surface,
+                side: BorderSide(color: p.borderStrong, width: 1.5),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.qr_code_scanner, size: 22),
+                  Text(t.scanShort, style: const TextStyle(fontSize: TextSizes.caption, fontWeight: FontWeight.w700)),
+                ],
+              ),
             ),
           ),
         ],
