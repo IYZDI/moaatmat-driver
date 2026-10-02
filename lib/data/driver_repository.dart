@@ -1,83 +1,73 @@
 import '../models.dart';
 
-/// هوية المندوب بعد الدخول.
-class DriverIdentity {
-  final String driverId;
-  final String name;
-  final String phone;
-  final String orgName;
-  const DriverIdentity({required this.driverId, required this.name, required this.phone, required this.orgName});
+/// نوعُ الخطأ يقرّر ما يُفعل به — لا نصُّه:
+///   session   ⇒ الجلسةُ ماتت (خروجٌ من جهازٍ آخر أو تعطيلُ الحساب) ⇒ خروجٌ محلّيّ.
+///   permanent ⇒ الخادمُ رفض بسببٍ يقوله للمندوب ⇒ يُعرض حرفيًّا ولا يُعاد.
+///   transient ⇒ شبكةٌ أو خادمٌ متعثّر ⇒ يُعاد لاحقًا والفعلُ محفوظ.
+enum DriverErrorKind { session, permanent, transient }
+
+class DriverActionError implements Exception {
+  const DriverActionError(this.kind, this.message);
+  const DriverActionError.session([this.message = 'انتهت جلستك — سجّل الدخول من جديد'])
+      : kind = DriverErrorKind.session;
+  const DriverActionError.permanent(this.message) : kind = DriverErrorKind.permanent;
+  const DriverActionError.transient([this.message = 'لا اتصال بالخادم — سيُعاد الإرسال تلقائيًّا'])
+      : kind = DriverErrorKind.transient;
+
+  final DriverErrorKind kind;
+
+  /// نصٌّ عربيٌّ موجّهٌ للمندوب — يُعرض كما هو.
+  final String message;
+
+  bool get isSession => kind == DriverErrorKind.session;
+  bool get isPermanent => kind == DriverErrorKind.permanent;
+  bool get isTransient => kind == DriverErrorKind.transient;
+
+  @override
+  String toString() => message;
 }
 
-/// معلومات مطعم المندوب (اسم المطعم + رقم الدعم) — من driver_org_info.
-class OrgInfo {
-  final String name;
-  final String supportPhone;
-  const OrgInfo({required this.name, required this.supportPhone});
-}
-
-/// رسالة محادثة واردة لحظيًّا (بثّ realtime.send من القاعدة — هجرة 0143).
-// ⚠ المفتاحُ **توصيلةٌ لا طلب**: توصيلةُ الاشتراك بلا `order_id`، فكانت
-//   تُستثنى من القنوات كلِّها. والقاعدةُ تبثّ على `delivery-chat:<id>` منذ 0434.
-class IncomingMessage {
-  final String deliveryId;
-  final String sender; // 'customer' | 'driver'
-  final String body;
-  const IncomingMessage({required this.deliveryId, required this.sender, required this.body});
-}
-
-/// عقد الوصول لبيانات المندوب — نموذج الرمز (session_token). تنفيذان: تجريبي
-/// (وهمي) وSupabase حقيقي. الشاشات تتعامل مع هذا العقد فقط.
+/// عقدُ الوصول لبيانات المندوب (نموذجُ رمز الجلسة). تنفيذان: Supabase الحقيقيّ،
+/// وخادمٌ وهميٌّ في الذاكرة يطبّق القواعدَ نفسَها (للعرض والاختبار).
+///
+/// كلُّ ما بعد الدخول يرمي [DriverActionError] فقط — فالحالةُ تقرّر بالنوع.
 abstract class DriverRepository {
+  /// خادمٌ وهميّ؟ (شارةُ «تجريبي» ولا بثَّ موقعٍ حقيقيّ.)
+  bool get isDemo;
   bool get isAuthed;
-  String? get driverId;
+  String? get sessionToken;
   DriverIdentity? get identity;
 
-  /// رمز الجلسة الحالي (يُمرَّر لدوال RPC — يلزم لتسجيل جهاز الإشعارات).
-  String? get sessionToken;
+  /// يستعيد الجلسةَ المحفوظة عند بدء التطبيق.
+  Future<bool> restoreSession();
 
-  /// يتحقّق من رمز المؤسسة ويرسل OTP للجوال. يعيد اسم المؤسسة. يرمي عند الفشل.
+  /// يتحقّق من رمز المطعم ويرسل OTP. يُعيد اسمَ المطعم. يرمي `Exception(رسالة)`.
   Future<String> sendOtp(String orgCode, String phone);
 
-  /// يتحقّق من الرمز ويُصدر جلسة المندوب (يخزّن session_token). يعيد الهوية.
-  Future<DriverIdentity> verifyOtp(String orgCode, String phone, String otp, String? name);
+  /// يُصدر الجلسة. يرمي `Exception(رسالة)`.
+  Future<DriverIdentity> verifyOtp(String orgCode, String phone, String otp, {String? name});
 
-  /// يستعيد الجلسة المحفوظة إن وُجدت (عند بدء التطبيق).
-  Future<bool> restoreSession();
+  Future<void> setName(String name);
   Future<void> signOut();
 
-  /// يحدّث اسم المندوب في الداشبورد (يُستخدم عند أول دخول إن لم يكن له اسم).
-  Future<void> updateName(String name);
+  Future<DriverProfile> profile();
+  Future<List<Stop>> route();
+  Future<List<HistoryEntry>> history();
 
-  Future<List<Order>> myOrders();
-  Future<DriverStats> todayStats();
-  Future<List<HistoryItem>> history();
+  /// `driver_set_status` — picked · enroute · defer · delivered · delivered_door · failed.
+  Future<void> setStatus(String deliveryId, String action, {String? reason});
 
-  Future<void> confirmPickup(String deliveryId);
-  Future<void> confirmEnroute(String deliveryId);
+  /// يرفع صورةَ التسليم ويعلّم التسليمَ معًا (دالّةُ الحافة تنادي `driver_set_status`
+  /// بنفسها — فلا يُنادى الاثنان للتوصيلة نفسها).
+  Future<void> uploadProof(String deliveryId, List<int> jpeg, {bool door = false});
 
-  /// يرفع صورة التسليم عبر دالة الحافة الآمنة ويعلّم التوصيلة مُسلّمة.
-  Future<void> confirmDelivered(String deliveryId, List<int> photoBytes);
-  Future<void> markFailed(String deliveryId, String reason);
-
-  /// محادثةُ **التوصيلة** لا الطلب (الهجرة 0291): كلُّ توصيلةٍ محادثةٌ تبدأ
-  /// نظيفة، فلا تظهر رسائلُ أمسِ اليوم. وتوصيلةُ الاشتراك — وهي ٧٤ من ٨٩ في
-  /// الإنتاج — صار لها محادثةٌ أصلًا، وكانت مستحيلةً قبلها.
   Future<List<ChatMessage>> messages(String deliveryId);
   Future<void> sendMessage(String deliveryId, String body);
+  Future<void> pingLocation(double lat, double lng);
 
-  /// يبثّ موقع المندوب الحيّ.
-  Future<void> broadcastLocation(double lat, double lng);
-
-  /// اسم مطعم المندوب ورقم دعمه (لزرّ «المساعدة والدعم»).
-  Future<OrgInfo?> orgInfo();
-
-  /// يزامن الاشتراك اللحظي بقنوات محادثات الطلبات المُمرّرة (`order-chat:<id>`).
+  /// يزامن قنواتِ المحادثة اللحظيّة (`delivery-chat:<id>`) مع التوصيلات المفتوحة.
   void syncMessageChannels(Set<String> deliveryIds);
-
-  /// رسائل واردة لحظيًّا من قنوات المحادثة المُزامنة.
   Stream<IncomingMessage> get incomingMessages;
 
-  /// بثّ لحظي عند تغيّر أي من توصيلات هذا المندوب (Realtime).
-  Stream<void> myOrdersChanges(String driverId);
+  void dispose();
 }

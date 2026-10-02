@@ -1,47 +1,98 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'config/env.dart';
 import 'data/crash_reporter.dart';
 import 'data/push_service.dart';
 import 'data/push_taps.dart';
 import 'l10n.dart';
-import 'theme.dart';
 import 'router.dart';
+import 'state.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // نُهيّئ Supabase فقط عند توفّر الإعدادات؛ وإلا يعمل التطبيق بالبيانات التجريبية.
+  // Supabase عند توفّر الإعدادات؛ وإلّا يعمل التطبيقُ على الخادم الوهميّ.
   if (Env.hasSupabase) {
     await Supabase.initialize(
       url: Env.supabaseUrl,
-      // المفتاح العلني (anon/publishable) — نفس مشروع الداشبورد. المندوب يُصادَق
-      // برمز الجلسة داخل دوال RPC (لا جلسة Supabase)، ورمز المؤسسة يحمل المؤسسة.
+      // المفتاحُ العلنيّ — المندوبُ يُصادَق برمز الجلسة داخل كلّ دالّة، لا بجلسة Supabase.
       publishableKey: Env.supabaseAnonKey,
     );
   }
-  // إشعارات فورية — تُهيَّأ فقط عند توفّر إعدادات Firebase.
+  // الإشعاراتُ الفوريّة — تُهيَّأ فقط عند توفّر إعدادات Firebase.
   await PushService.instance.init();
-  // التقاطُ الانهيار يلفّ `runApp` (0296) — والمندوبُ مجهولٌ فيُرسل رمزُه
-  // مع التقرير لتُعرف مؤسّستُه.
+  // التقاطُ الانهيار يلفّ `runApp` (0296).
   CrashReporter.install(() => runApp(const ProviderScope(child: MoaatmatDriverApp())));
 }
 
-class MoaatmatDriverApp extends ConsumerWidget {
-  const MoaatmatDriverApp({super.key});
+/// رسائلُ الحالة (أخطاءُ الخادم حرفيًّا، والتنبيهات) تظهر من أيّ شاشة.
+final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+class MoaatmatDriverApp extends ConsumerStatefulWidget {
+  const MoaatmatDriverApp({super.key, this.useGoogleFonts = true});
+
+  /// false في الاختبارات: لا شبكةَ لجلب الخطّ.
+  final bool useGoogleFonts;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MoaatmatDriverApp> createState() => _MoaatmatDriverAppState();
+}
+
+class _MoaatmatDriverAppState extends ConsumerState<MoaatmatDriverApp> {
+  StreamSubscription<UiEvent>? _events;
+  late final ThemeData _light = buildAppTheme(Brightness.light, useGoogleFonts: widget.useGoogleFonts);
+  late final ThemeData _dark = buildAppTheme(Brightness.dark, useGoogleFonts: widget.useGoogleFonts);
+
+  @override
+  void initState() {
+    super.initState();
+    _events = ref.read(driverProvider.notifier).events.listen(_showEvent);
+    // ⛔ نقرةُ الإشعار تُوصَّل مرّةً بعد بناء المُوجِّه (الدالّةُ تحرس التكرار).
+    //   وبلا Firebase لا نقرات — ولمسُ `FirebaseMessaging` حينها يرمي [core/no-app].
+    if (Env.hasFirebase) {
+      final router = ref.read(routerProvider);
+      unawaited(PushTaps.wire(router.go));
+    }
+  }
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    super.dispose();
+  }
+
+  void _showEvent(UiEvent e) {
+    final messenger = scaffoldMessengerKey.currentState;
+    if (messenger == null) return;
+    final ctx = scaffoldMessengerKey.currentContext;
+    final p = ctx == null ? Palette.light : ctx.pal;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(ref.read(stringsProvider).event(e.message)),
+        backgroundColor: e.error ? p.danger : null,
+        // خطأُ الخادم يُقرأ كاملًا — جملةٌ عربيّةٌ للمندوب لا رمز.
+        duration: Duration(seconds: e.error ? 6 : 3),
+      ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
-    // ⛔ نقرةُ الإشعار تُوصَّل مرّةً واحدةً بعد بناء المُوجِّه (الدالّةُ تحرس
-    //   التكرارَ بنفسها). وبدونها كان الخادمُ يرسل الوجهةَ والتطبيقُ يُهملها.
-    PushTaps.wire(router.go);
     final lang = ref.watch(localeProvider);
+    final mode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'Moaatmat Driver',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
+      scaffoldMessengerKey: scaffoldMessengerKey,
+      theme: _light,
+      darkTheme: _dark,
+      themeMode: mode,
       routerConfig: router,
       locale: Locale(lang),
       supportedLocales: const [Locale('ar'), Locale('en')],

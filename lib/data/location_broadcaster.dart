@@ -3,14 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'driver_repository.dart';
 
-/// يبثّ موقع المندوب المباشر أثناء التوصيل عبر
-/// `broadcast_my_delivery_location` — فيظهر على خريطة تتبّع الطلب لدى العميل.
+/// يبثّ موقع المندوب المباشر أثناء التوصيل عبر `driver_ping_location` — فيظهر
+/// على خريطة تتبّع الطلب لدى العميل — ويُخبر الحالةَ بكلّ موقعٍ جديد ليُحسب
+/// «1.2 كم منك» من موقعٍ حقيقيّ لا مقدَّر.
 class LocationBroadcaster {
   final DriverRepository repo;
+
+  /// يُنادى بكلّ موقع — حتّى إن فشل إرسالُه: المسافةُ على الشاشة لا تنتظر الشبكة.
+  final void Function(double lat, double lng)? onPosition;
   StreamSubscription<Position>? _sub;
   bool _sending = false;
 
-  LocationBroadcaster(this.repo);
+  LocationBroadcaster(this.repo, {this.onPosition});
 
   bool get active => _sub != null;
 
@@ -36,10 +40,11 @@ class LocationBroadcaster {
     _sub = Geolocator.getPositionStream(
       locationSettings: _locationSettings(),
     ).listen((pos) async {
+      onPosition?.call(pos.latitude, pos.longitude);
       if (_sending) return; // تجاوز التحديث إن كان سابقه لم يكتمل بعد
       _sending = true;
       try {
-        await repo.broadcastLocation(pos.latitude, pos.longitude);
+        await repo.pingLocation(pos.latitude, pos.longitude);
       } catch (_) {
         // نتجاهل أخطاء البثّ العابرة (شبكة/إذن) — التحديث التالي يعيد المحاولة.
       }
@@ -74,7 +79,7 @@ class LocationBroadcaster {
         accuracy: LocationAccuracy.high,
         distanceFilter: 25,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'مُعتمَّات المندوب',
+          notificationTitle: 'مؤتمت — المندوب',
           notificationText: 'يُبثّ موقعك أثناء التوصيل',
           enableWakeLock: true,
         ),

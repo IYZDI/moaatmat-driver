@@ -1,188 +1,553 @@
+/// حالةُ تطبيق المندوب — «مساري اليوم».
+///
+/// كلُّ ضغطةٍ تمرّ بطابور الأفعال (`ActionQueue`): أثرُها يظهر فورًا على الشاشة
+/// (طبقةٌ فوق ما قاله الخادم)، ثمّ يُرسَل بعد مهلة التراجع، ويُعاد إن انقطعت
+/// الشبكة. فالمندوبُ في قبوٍ بلا إشارة يُكمل مسارَه، ولا يضيع تسليمٌ ضغطه.
+library;
+
 import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'l10n.dart';
-import 'models.dart';
-import 'data/repository.dart';
+
+import 'config/env.dart';
+import 'data/action_queue.dart';
 import 'data/driver_repository.dart';
 import 'data/location_broadcaster.dart';
+import 'data/mock_driver_repository.dart';
 import 'data/notifications_service.dart';
 import 'data/push_service.dart';
+import 'data/route_local_store.dart';
+import 'data/supabase_driver_repository.dart';
+import 'l10n.dart' show localeProvider;
+import 'models.dart';
+import 'route_logic.dart';
 
-/// معلومات المندوب (ثابتة في الوضع التجريبي — تُجلب لاحقاً من الحساب الحقيقي).
-class Driver {
-  final String name;
-  final String initial;
-  final String place;
-  final String phone;
-  const Driver({required this.name, required this.initial, required this.place, required this.phone});
+export 'data/action_queue.dart' show PendingAction;
+export 'data/driver_repository.dart' show DriverActionError, DriverErrorKind, DriverRepository;
+export 'models.dart';
+export 'route_logic.dart';
+
+enum AuthStatus { restoring, signedOut, signedIn }
+
+enum ScanResult { loaded, alreadyLoaded, unknown, invalid }
+
+/// رسالةٌ عابرة للشاشة (SnackBar) — رفضُ الخادم يُقال بنصّه.
+class UiEvent {
+  const UiEvent(this.message, {this.error = false});
+  final String message;
+  final bool error;
 }
 
-const kDriver = Driver(
-  name: 'أحمد المصري',
-  initial: 'أ',
-  place: 'مطعم مؤتمات · مناوبة المساء',
-  phone: '0555 123 456',
-);
-
-const kMockTotal = 12;
-
-/// الحرف الأول لاسم المندوب (للأفاتار). يعيد '؟' إن كان الاسم فارغًا.
-String driverInitial(String name) {
-  final t = name.trim();
-  return t.isEmpty ? '؟' : t[0];
-}
-
-/// وقت الآن بصيغة عربية بسيطة (٨:١٤ م).
-String nowTime() {
-  final d = DateTime.now();
-  var h = d.hour;
-  final m = d.minute.toString().padLeft(2, '0');
-  final mer = h >= 12 ? 'م' : 'ص';
-  h = h % 12;
-  if (h == 0) h = 12;
-  return '$h:$m $mer';
-}
-
-class DriverData {
-  final bool authed;
-  final String name;
-  final String phone;
-  final String orgName;
-  final List<Order> orders;
-  final List<HistoryItem> history;
-  final Map<String, List<ChatMessage>> messages;
-  final int total;
-  final int delivered;
-  final int remaining;
-
-  /// هل يُبثّ موقعُ المندوب فعلًا الآن؟
-  ///
-  /// ⚠ **في الحالة لا في المزوّد.** أوّلُ صياغةٍ جعلتها قارئةً على
-  ///   `DriverNotifier` تعود إلى `_broadcaster?.active` — و
-  ///   `ref.watch(driverProvider.notifier)` لا يُعيد البناءَ حين يتغيّر حقلٌ
-  ///   خارج الحالة، فتبقى الشارةُ على ما كانت. وشارةٌ تقول «يُبثّ موقعك» وهو
-  ///   لا يُبثّ أسوأُ من غيابها: المندوبُ يطمئنّ إلى شيءٍ لا يقع.
-  final bool broadcasting;
-
-  const DriverData({
-    required this.authed,
-    required this.name,
-    required this.phone,
-    this.orgName = '',
-    required this.orders,
-    required this.history,
-    required this.messages,
-    required this.total,
-    required this.delivered,
-    required this.remaining,
-    this.broadcasting = false,
+/// المهلُ والإيقاعات — تُستبدل في الاختبار بأقصر منها.
+class QueueTiming {
+  const QueueTiming({
+    this.loadGrace = const Duration(seconds: 4),
+    this.closeGrace = const Duration(seconds: 10),
+    this.pollEvery = const Duration(seconds: 20),
+    this.chatPollEvery = const Duration(seconds: 8),
   });
 
-  Order? orderById(String id) {
-    for (final o in orders) {
-      if (o.id == id) return o;
+  /// «حُمّل» — قصيرة: خطأٌ في لمس مربّعٍ مجاور يُلحظ فورًا.
+  final Duration loadGrace;
+
+  /// «سُلّم/تعذّر/عند الباب» — أطول: يُغلق محطّةً ويُرسل للعميل.
+  final Duration closeGrace;
+  final Duration pollEvery;
+  final Duration chatPollEvery;
+}
+
+const Object _keep = Object();
+
+class DriverState {
+  const DriverState({
+    this.auth = AuthStatus.restoring,
+    this.profile,
+    this.stops = const [],
+    this.history = const [],
+    this.historyLoaded = false,
+    this.messages = const {},
+    this.syncing = false,
+    this.offline = false,
+    this.lastSync,
+    this.loadError,
+    this.pending = const [],
+    this.local = const RouteLocal(),
+    this.myPos,
+    this.broadcasting = false,
+    this.demo = false,
+  });
+
+  final AuthStatus auth;
+  final DriverProfile? profile;
+
+  /// المحطّاتُ الفعليّة = الخادم + أثرُ الأفعال المعلّقة (`Stop.pending` معلَّم).
+  final List<Stop> stops;
+  final List<HistoryEntry> history;
+  final bool historyLoaded;
+  final Map<String, List<ChatMessage>> messages;
+  final bool syncing;
+  final bool offline;
+  final DateTime? lastSync;
+  final String? loadError;
+
+  /// أفعالُ المندوب المعلّقة (بلا التوابع الآليّة) — آخرُها القابلُ للتراجع هو شريطُ «تراجع».
+  final List<PendingAction> pending;
+  final RouteLocal local;
+  final LatLon? myPos;
+
+  /// هل يُبثّ الموقعُ فعلًا (لا نيّةً)؟
+  final bool broadcasting;
+  final bool demo;
+
+  bool get signedIn => auth == AuthStatus.signedIn;
+
+  Stop? stopById(String id) {
+    for (final s in stops) {
+      if (s.id == id) return s;
     }
     return null;
   }
 
-  DriverData copyWith({
-    bool? authed,
-    String? name,
-    String? phone,
-    String? orgName,
-    List<Order>? orders,
-    List<HistoryItem>? history,
+  /// آخرُ فعلٍ ما زال يُتراجع عنه — أو null.
+  PendingAction? get latestUndoable {
+    for (final a in pending.reversed) {
+      if (a.undoable) return a;
+    }
+    return null;
+  }
+
+  DriverState copyWith({
+    AuthStatus? auth,
+    Object? profile = _keep,
+    List<Stop>? stops,
+    List<HistoryEntry>? history,
+    bool? historyLoaded,
     Map<String, List<ChatMessage>>? messages,
-    int? total,
-    int? delivered,
-    int? remaining,
+    bool? syncing,
+    bool? offline,
+    Object? lastSync = _keep,
+    Object? loadError = _keep,
+    List<PendingAction>? pending,
+    RouteLocal? local,
+    Object? myPos = _keep,
     bool? broadcasting,
+    bool? demo,
   }) =>
-      DriverData(
-        authed: authed ?? this.authed,
-        name: name ?? this.name,
-        phone: phone ?? this.phone,
-        orgName: orgName ?? this.orgName,
-        orders: orders ?? this.orders,
+      DriverState(
+        auth: auth ?? this.auth,
+        profile: identical(profile, _keep) ? this.profile : profile as DriverProfile?,
+        stops: stops ?? this.stops,
         history: history ?? this.history,
+        historyLoaded: historyLoaded ?? this.historyLoaded,
         messages: messages ?? this.messages,
-        total: total ?? this.total,
-        delivered: delivered ?? this.delivered,
-        remaining: remaining ?? this.remaining,
+        syncing: syncing ?? this.syncing,
+        offline: offline ?? this.offline,
+        lastSync: identical(lastSync, _keep) ? this.lastSync : lastSync as DateTime?,
+        loadError: identical(loadError, _keep) ? this.loadError : loadError as String?,
+        pending: pending ?? this.pending,
+        local: local ?? this.local,
+        myPos: identical(myPos, _keep) ? this.myPos : myPos as LatLon?,
         broadcasting: broadcasting ?? this.broadcasting,
+        demo: demo ?? this.demo,
       );
 }
 
-// ---------- بذور الوضع التجريبي ----------
-// ⚠ الفترةُ مبذورةٌ **مختلطة** عمدًا: اثنتان لهما فترةٌ وواحدةٌ بلا (طلبُ نقطة
-//   بيعٍ لا اشتراكَ له). فالوضعُ التجريبيّ يُري الحالتين معًا، ويُظهر أنّ
-//   البطاقةَ الخاليةَ من فترةٍ تبدو كاملةً لا ناقصة.
-final _seedOrders = <Order>[
-  Order(id: '1042', name: 'سارة عبدالله', initial: 'س', items: 'برجر مشوي × 2 · بطاطس · مشروب', address: 'حي الياسمين، شارع الأمير سلطان، مبنى 24', prefTime: '8:30 م', status: OrderStatus.ready, distance: '1.4 كم', eta: 'وصول تقريبي 8:26 م · 6 دقائق', deliverySlot: 'مساءً (٥ - ٨ م)'),
-  Order(id: '1043', name: 'خالد الفهد', initial: 'خ', items: 'دجاج بروستد × 1 · سلطة · صوص', address: 'حي النرجس، طريق الملك عبدالعزيز، فيلا 8', prefTime: '8:50 م', status: OrderStatus.preparing, distance: '2.1 كم', eta: 'وصول تقريبي 8:44 م · 9 دقائق'),
-  Order(id: '1041', name: 'منى الحربي', initial: 'م', items: 'شاورما × 3', address: 'حي الملقا، شارع أنس بن مالك، مبنى 12', prefTime: '9:05 م', status: OrderStatus.enroute, distance: '3.0 كم', eta: 'وصول تقريبي 9:01 م · 12 دقيقة', deliverySlot: 'ليلًا (٨ - ١١ م)'),
-];
+// ═══════════════ المزوّدات ═══════════════
 
-final _seedHistory = <HistoryItem>[
-  HistoryItem(id: '1041', name: 'منى الحربي', sub: 'سُلّم 8:12 م', ok: true),
-  HistoryItem(id: '1039', name: 'عبدالرحمن ناصر', sub: 'سُلّم 7:48 م', ok: true),
-  HistoryItem(id: '1036', name: 'فهد العتيبي', sub: 'العميل غير متواجد', ok: false),
-  HistoryItem(id: '1034', name: 'ريم السالم', sub: 'سُلّم 7:20 م', ok: true),
-];
+/// الخادمُ الحقيقيّ إن عُرفت إعداداتُه، وإلّا الخادمُ الوهميّ — والاختبارُ يستبدله.
+final driverRepositoryProvider = Provider<DriverRepository>((ref) {
+  final repo = Env.hasSupabase ? SupabaseDriverRepository() : MockDriverRepository();
+  ref.onDispose(repo.dispose);
+  return repo;
+});
 
-final _seedMessages = <String, List<ChatMessage>>{
-  '1042': [
-    ChatMessage(outgoing: true, text: 'السلام عليكم، أنا مندوب التوصيل من مطعم مؤتمات 👋', time: '8:14 م'),
-    ChatMessage(outgoing: false, text: 'أهلاً، الطلب في الطريق أليس كذلك؟', time: '8:15 م'),
-    ChatMessage(outgoing: true, text: 'نعم، سأصل خلال 6 دقائق تقريباً. هل الموقع على شارع الأمير سلطان صحيح؟', time: '8:15 م'),
-    ChatMessage(outgoing: false, text: 'صحيح، مبنى 24 الدور الثالث. سأنتظرك عند المدخل 🙏', time: '8:16 م'),
-  ],
-};
+final queueStoreProvider = Provider<QueueStore>((ref) => PrefsQueueStore());
+final routeLocalStoreProvider = Provider<RouteLocalStore>((ref) => RouteLocalStore());
+final queueTimingProvider = Provider<QueueTiming>((ref) => const QueueTiming());
 
-DriverData _mockInitial() => DriverData(
-      authed: false,
-      name: 'مندوب مؤتمات',
-      phone: '+966 55 123 4567',
-      orders: List.of(_seedOrders),
-      history: List.of(_seedHistory),
-      messages: {for (final e in _seedMessages.entries) e.key: List.of(e.value)},
-      total: kMockTotal,
-      delivered: 7,
-      remaining: 5,
-    );
+final driverProvider = NotifierProvider<DriverNotifier, DriverState>(DriverNotifier.new);
 
-DriverData _connectedInitial() => const DriverData(
-      authed: false, name: '', phone: '', orders: [], history: [], messages: {}, total: 0, delivered: 0, remaining: 0,
-    );
+final routeGroupsProvider = Provider<List<RouteGroupView>>((ref) {
+  final s = ref.watch(driverProvider);
+  return buildRouteGroupViews(s.stops, s.local);
+});
 
-class DriverNotifier extends Notifier<DriverData> {
-  DriverRepository? get _repo => ref.read(driverRepositoryProvider);
-  bool get connected => _repo != null;
+final selectedGroupKeyProvider = StateProvider<String?>((ref) => null);
 
-  StreamSubscription<void>? _ordersSub;
+/// الفترةُ المعروضة: ما اختاره المندوب، وإلّا أوّلُ فترةٍ فيها مفتوح، وإلّا الأخيرة.
+///
+/// ⚠ وفترةٌ بدأها وانتهت ولم يُقرّ بها («وصلتُ المطبخ») تبقى معروضةً قبل التالية:
+///   وإلّا قفزت الشاشةُ إلى مسار المساء لحظةَ آخر تسليم، ولم يرَ المندوبُ أبدًا
+///   ملخّصَه ولا قائمةَ الأكياس التي يُعيدها إلى المطبخ.
+final currentGroupProvider = Provider<RouteGroupView?>((ref) {
+  final groups = ref.watch(routeGroupsProvider);
+  if (groups.isEmpty) return null;
+  final sel = ref.watch(selectedGroupKeyProvider);
+  if (sel != null) {
+    for (final g in groups) {
+      if (g.key == sel) return g;
+    }
+  }
+  final local = ref.watch(driverProvider.select((s) => s.local));
+  for (final g in groups) {
+    if (g.phase == RoutePhase.done && !g.acked && local.started.contains(g.key)) return g;
+    if (g.open.isNotEmpty) return g;
+  }
+  return groups.last;
+});
+
+// ═══════════════ المُشغِّل ═══════════════
+
+class _Committed {
+  _Committed(this.action, this.at);
+  final PendingAction action;
+  final DateTime at;
+}
+
+class _Lifecycle with WidgetsBindingObserver {
+  _Lifecycle(this.onResume);
+  final VoidCallback onResume;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed) onResume();
+  }
+}
+
+class DriverNotifier extends Notifier<DriverState> {
+  late DriverRepository _repo;
+  late ActionQueue _queue;
+  late RouteLocalStore _localStore;
+  late QueueTiming _timing;
+  final _events = StreamController<UiEvent>.broadcast();
+
+  List<Stop> _server = const [];
+
+  /// أفعالٌ قبلها الخادمُ ولم يُقرأ مسارٌ بعدها — تبقى طبقةً كي لا ترمش المحطّة
+  /// مفتوحةً بين القبول والقراءة.
+  final List<_Committed> _recent = [];
+
+  /// ترتيبُ إغلاق المحطّات في العرض التجريبيّ — منه «موقعي» المحاكى.
+  final List<String> _demoTrail = [];
+
+  Timer? _poll;
+  Timer? _chatPoll;
+  Timer? _refreshSoon;
   StreamSubscription<IncomingMessage>? _msgSub;
-
-  /// معرّف التوصيلة التي محادثتها مفتوحة الآن (لا نُشعر المندوب وهو داخلها).
-  String? _openChatId;
-  void setOpenChat(String? deliveryId) => _openChatId = deliveryId;
-
-  /// باثُّ الموقع — **يملكه هذا المزوّدُ لا شاشةُ الخريطة**، فيعيش ما دامت
-  /// للمندوب توصيلةٌ مفتوحة أيًّا كانت الشاشةُ المعروضة.
   LocationBroadcaster? _broadcaster;
+  _Lifecycle? _lifecycle;
+  String? _openChat;
+  Stop? _lastScanned;
+  String? _profileDay;
+  bool _refreshing = false;
+  bool _refreshAgain = false;
+  bool _signingOut = false;
+  bool _broadcastWanted = false;
+  bool _disposed = false;
 
-  /// يبدأ البثَّ عند وجود توصيلةٍ مفتوحة ويوقفه عند خلوّها، ثمّ **يكتب الحقيقةَ
-  /// في الحالة** — لا النيّة.
-  ///
-  /// ⚠ ويُطفأ عند الخلوّ **صراحةً**: بثٌّ يستمرّ بعد آخر تسليمٍ يستنزف بطّاريّةَ
-  ///   المندوب ويُبقي مؤشّرَ الموقع مضاءً على هاتفه بلا سبب — وهو ما يجعل
-  ///   المناديبَ يمنعون الإذنَ أصلًا، فنخسر البثَّ في الحالة التي نريده فيها.
-  Future<void> _syncLocationBroadcast(List<Order> orders) async {
-    if (!connected) return;
-    final wanted = orders.any((o) => o.active);
+  Stream<UiEvent> get events => _events.stream;
+  Stop? get lastScannedStop => _lastScanned;
+
+  @override
+  DriverState build() {
+    _repo = ref.read(driverRepositoryProvider);
+    _localStore = ref.read(routeLocalStoreProvider);
+    _timing = ref.read(queueTimingProvider);
+    _queue = ActionQueue(
+      store: ref.read(queueStoreProvider),
+      run: _runAction,
+      onChange: _recompute,
+      onCommitted: _onCommitted,
+      onPermanent: _onPermanent,
+      onTransient: _onTransient,
+      onSession: (_) => _sessionDied(),
+    );
+    ref.onDispose(_dispose);
+    scheduleMicrotask(_restore);
+    return DriverState(demo: _repo.isDemo);
+  }
+
+  void _dispose() {
+    _disposed = true;
+    _poll?.cancel();
+    _chatPoll?.cancel();
+    _refreshSoon?.cancel();
+    _msgSub?.cancel();
+    _queue.dispose();
+    unawaited(_broadcaster?.stop());
+    if (_lifecycle != null) {
+      try {
+        WidgetsBinding.instance.removeObserver(_lifecycle!);
+      } catch (_) {}
+    }
+    _events.close();
+  }
+
+  void _emit(String message, {bool error = false}) {
+    if (!_events.isClosed) _events.add(UiEvent(message, error: error));
+  }
+
+  // ---------- الدخول ----------
+
+  Future<void> _restore() async {
+    await _queue.load();
+    var ok = false;
+    try {
+      ok = await _repo.restoreSession();
+    } catch (_) {}
+    if (_disposed) return;
+    if (!ok) {
+      state = state.copyWith(auth: AuthStatus.signedOut);
+      return;
+    }
+    state = state.copyWith(auth: AuthStatus.signedIn, profile: _profileFromIdentity());
+    await _afterSignIn();
+  }
+
+  /// ملفٌّ مؤقّتٌ من هويّة الدخول حتّى يصل `driver_profile` — الاسمُ والجوالُ
+  /// معروفان، وإعداداتُ المطعم تُفترض الأحوط (الصورةُ إلزاميّة) حتّى تُقرأ.
+  DriverProfile? _profileFromIdentity() {
+    final id = _repo.identity;
+    if (id == null) return null;
+    return DriverProfile(name: id.name, phone: id.phone, orgName: id.orgName);
+  }
+
+  /// يرسل رمز التحقّق؛ يعيد اسم المطعم. يرمي `Exception(رسالة)`.
+  Future<String> sendOtp(String orgCode, String phone) => _repo.sendOtp(orgCode, phone);
+
+  Future<void> verifyOtp(String orgCode, String phone, String otp) async {
+    await _repo.verifyOtp(orgCode, phone, otp);
+    state = state.copyWith(auth: AuthStatus.signedIn, profile: _profileFromIdentity());
+    await _afterSignIn();
+  }
+
+  Future<void> _afterSignIn() async {
+    _poll?.cancel();
+    _poll = Timer.periodic(_timing.pollEvery, (_) => unawaited(refresh()));
+    await _msgSub?.cancel();
+    _msgSub = _repo.incomingMessages.listen((m) => unawaited(_onIncoming(m)));
+    _observeLifecycle();
+    await _loadProfile();
+    await refresh();
+    unawaited(_queue.pump());
+    if (!_repo.isDemo) unawaited(_registerPush());
+  }
+
+  Future<void> _registerPush() async {
+    try {
+      await NotificationsService.instance.init();
+    } catch (_) {}
+    try {
+      // تفضيلُ المندوب يُقرأ قبل التسجيل: من أطفأ الإشعارات لا يُعاد تسجيلُه بكلّ دخول.
+      final token = _repo.sessionToken;
+      if (token != null && await PushService.isEnabled()) {
+        unawaited(PushService.instance.registerToken(token));
+      }
+    } catch (_) {}
+  }
+
+  void _observeLifecycle() {
+    if (_lifecycle != null) return;
+    try {
+      _lifecycle = _Lifecycle(_onResume);
+      WidgetsBinding.instance.addObserver(_lifecycle!);
+    } catch (_) {
+      _lifecycle = null;
+    }
+  }
+
+  void _onResume() {
+    if (!state.signedIn) return;
+    unawaited(refresh());
+    _queue.kick();
+    // الإذنُ قد يُمنح من الإعدادات أثناء الغياب — يُحاوَل البثُّ من جديد.
+    if (_broadcastWanted && !(_broadcaster?.active ?? false)) unawaited(_syncBroadcast(true));
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final p = await _repo.profile();
+      if (_disposed || !state.signedIn) return;
+      state = state.copyWith(profile: p);
+    } on DriverActionError catch (e) {
+      if (e.isSession) return _sessionDied();
+    } catch (_) {}
+    final day = dayKey(state.profile?.orgToday ?? DateTime.now());
+    _profileDay = dayKey(DateTime.now());
+    if (state.local.day != day) {
+      final l = await _localStore.load(day);
+      if (!_disposed) state = state.copyWith(local: l);
+    }
+  }
+
+  Future<bool> setName(String name) async {
+    final n = name.trim();
+    if (n.isEmpty) return false;
+    try {
+      await _repo.setName(n);
+      final p = state.profile;
+      if (p != null) state = state.copyWith(profile: p.copyWith(name: n));
+      return true;
+    } on DriverActionError catch (e) {
+      if (e.isSession) await _sessionDied();
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// خروجٌ بطلب المندوب: يُرسَل ما في الطابور أوّلًا — تسليمٌ ضغطه قبل ثوانٍ لا
+  /// يضيع لأنّه خرج داخل مهلة التراجع.
+  Future<void> logout() async {
+    try {
+      await _queue.flush().timeout(const Duration(seconds: 8));
+    } catch (_) {}
+    await _signOutLocal();
+  }
+
+  Future<void> _sessionDied() async {
+    if (_signingOut || !state.signedIn) return;
+    _emit('انتهت جلستك — سجّل الدخول من جديد', error: true);
+    await _signOutLocal();
+  }
+
+  Future<void> _signOutLocal() async {
+    if (_signingOut) return;
+    _signingOut = true;
+    try {
+      _poll?.cancel();
+      _chatPoll?.cancel();
+      _refreshSoon?.cancel();
+      await _msgSub?.cancel();
+      _msgSub = null;
+      // البثُّ يتوقّف مع الجلسة: رمزٌ أُبطل لا يبقى يبثّ موقعَ صاحبه.
+      _broadcastWanted = false;
+      await _broadcaster?.stop();
+      _broadcaster = null;
+      await _queue.clear();
+      await _localStore.clear();
+      try {
+        await _repo.signOut();
+      } catch (_) {}
+      _server = const [];
+      _recent.clear();
+      _demoTrail.clear();
+      _openChat = null;
+      if (!_disposed) state = DriverState(auth: AuthStatus.signedOut, demo: _repo.isDemo);
+    } finally {
+      _signingOut = false;
+    }
+  }
+
+  // ---------- المزامنة ----------
+
+  Future<void> refresh() async {
+    if (_disposed || !state.signedIn) return;
+    if (_refreshing) {
+      _refreshAgain = true;
+      return;
+    }
+    _refreshing = true;
+    state = state.copyWith(syncing: true);
+    try {
+      do {
+        _refreshAgain = false;
+        // يومُ المطعم تغيّر (منتصف الليل والتطبيقُ مفتوح)؟ يُقرأ الملفُّ من جديد.
+        if (_profileDay != dayKey(DateTime.now())) await _loadProfile();
+        final started = DateTime.now();
+        final stops = await _repo.route();
+        if (_disposed || !state.signedIn) return;
+        _server = stops;
+        _recent.removeWhere((c) => c.at.isBefore(started));
+        state = state.copyWith(offline: false, lastSync: DateTime.now(), loadError: null);
+        _cleanLocal();
+      } while (_refreshAgain);
+    } on DriverActionError catch (e) {
+      if (e.isSession) {
+        _refreshing = false;
+        return _sessionDied();
+      }
+      if (!_disposed) {
+        state = e.isTransient ? state.copyWith(offline: true) : state.copyWith(loadError: e.message);
+      }
+    } catch (_) {
+      if (!_disposed) state = state.copyWith(offline: true);
+    } finally {
+      _refreshing = false;
+      if (!_disposed && state.signedIn) {
+        state = state.copyWith(syncing: false);
+        _recompute();
+      }
+    }
+  }
+
+  void _scheduleRefresh() {
+    _refreshSoon?.cancel();
+    _refreshSoon = Timer(const Duration(milliseconds: 300), () => unawaited(refresh()));
+  }
+
+  /// قراراتٌ عن محطّاتٍ أغلقها الخادم لا معنى لها — تُحذف كي لا تكبر.
+  void _cleanLocal() {
+    final closed = {for (final s in _server) if (s.isClosed) s.id};
+    final l = state.local;
+    if (!l.deferred.any(closed.contains) && !(l.pinned != null && closed.contains(l.pinned))) return;
+    _setLocal(l.copyWith(
+      deferred: [for (final id in l.deferred) if (!closed.contains(id)) id],
+      pinned: l.pinned != null && closed.contains(l.pinned) ? null : l.pinned,
+    ));
+  }
+
+  void _setLocal(RouteLocal l) {
+    state = state.copyWith(local: l);
+    unawaited(_localStore.save(l));
+  }
+
+  /// يعيد بناءَ المحطّات الفعليّة من الخادم + المُلتزَم حديثًا + المعلَّق.
+  void _recompute() {
+    if (_disposed) return;
+    final actions = <StopAction>[
+      for (final c in _recent) (deliveryId: c.action.deliveryId, action: c.action.action, reason: c.action.reason),
+      for (final a in _queue.items) (deliveryId: a.deliveryId, action: a.action, reason: a.reason),
+    ];
+    final eff = applyActions(_server, actions);
+    var next = state.copyWith(
+      stops: eff,
+      pending: [for (final a in _queue.items) if (!a.isFollowUp) a],
+    );
+    if (_repo.isDemo) next = next.copyWith(myPos: _demoPos(eff));
+    state = next;
+    if (!state.signedIn) return;
+    _repo.syncMessageChannels({for (final s in eff) if (s.isOpen) s.id});
+    final wanted = !_repo.isDemo && eff.any((s) => s.status == StopStatus.enroute);
+    if (wanted != _broadcastWanted) {
+      _broadcastWanted = wanted;
+      unawaited(_syncBroadcast(wanted));
+    }
+  }
+
+  /// العرضُ التجريبيّ: «أنا» عند آخر محطّةٍ أغلقتُها، وإلّا عند الفرع.
+  LatLon? _demoPos(List<Stop> eff) {
+    final byId = {for (final s in eff) s.id: s};
+    for (final id in _demoTrail.reversed) {
+      final s = byId[id];
+      if (s != null && s.isClosed && hasXY(s.pos)) return s.pos;
+    }
+    for (final s in eff) {
+      if (hasXY(s.branchPos)) return s.branchPos;
+    }
+    return null;
+  }
+
+  /// البثُّ مربوطٌ بوجود محطّةٍ «في الطريق» لا بشاشةٍ مفتوحة، ويُطفأ صراحةً عند
+  /// خلوّها: بثٌّ بعد آخر تسليمٍ يستنزف البطّاريّة فيمنع المناديبُ الإذنَ أصلًا.
+  /// ⚠ ويُطلب عند التحوّل إلى «مطلوب» فقط — لا مع كلّ إعادة بناء، وإلّا تكرّر
+  ///   سؤالُ الإذن على أندرويد حتّى يُرفض نهائيًّا.
+  Future<void> _syncBroadcast(bool wanted) async {
     if (wanted) {
-      _broadcaster ??= LocationBroadcaster(_repo!);
+      _broadcaster ??= LocationBroadcaster(_repo, onPosition: (lat, lng) {
+        if (!_disposed) state = state.copyWith(myPos: LatLon(lat, lng));
+      });
       if (!_broadcaster!.active) {
-        // الإذنُ قد يُرفض — لا يُسقط ذلك التحديثَ ولا يُعطّل شيئًا آخر.
         try {
           await _broadcaster!.start();
         } catch (_) {}
@@ -190,346 +555,261 @@ class DriverNotifier extends Notifier<DriverData> {
     } else if (_broadcaster?.active ?? false) {
       await _broadcaster!.stop();
     }
-    // ⚠ تُقرأ `active` **بعد** المحاولة لا قبلها: `start()` تُرجع false حين
-    //   يُرفض الإذنُ أو تُطفأ خدمةُ الموقع، وحينها لا شارةَ تُعرض.
     final on = _broadcaster?.active ?? false;
-    if (on != state.broadcasting) {
-      state = state.copyWith(broadcasting: on);
+    if (!_disposed && on != state.broadcasting) state = state.copyWith(broadcasting: on);
+  }
+
+  // ---------- الطابور ----------
+
+  Future<void> _runAction(PendingAction a, List<int>? photo) async {
+    final closing = a.action == 'delivered' || a.action == 'delivered_door';
+    if (closing && photo != null) {
+      await _repo.uploadProof(a.deliveryId, photo, door: a.action == 'delivered_door');
+    } else {
+      await _repo.setStatus(a.deliveryId, a.action, reason: a.reason);
     }
   }
 
-  @override
-  DriverData build() {
-    ref.onDispose(() {
-      _ordersSub?.cancel();
-      _msgSub?.cancel();
-      _broadcaster?.stop();
-    });
-    if (connected) {
-      _restore(); // استعادة الجلسة المحفوظة (غير متزامنة)
-      return _connectedInitial();
-    }
-    return _mockInitial();
-  }
-
-  Future<void> _restore() async {
-    if (await _repo!.restoreSession()) {
-      state = _applyIdentity(state.copyWith(authed: true));
-      await refresh();
-      await _subscribeOrders();
+  void _onCommitted(PendingAction a) {
+    _recent.add(_Committed(a, DateTime.now()));
+    if (state.offline) state = state.copyWith(offline: false);
+    _scheduleRefresh();
+    if (state.historyLoaded && const {'delivered', 'delivered_door', 'failed'}.contains(a.action)) {
+      unawaited(loadHistory());
     }
   }
 
-  /// يُدخل اسم المندوب وجواله واسم مطعمه الحقيقيّة (من الداشبورد) في الحالة.
-  DriverData _applyIdentity(DriverData d) {
-    final id = _repo?.identity;
-    if (id == null) return d;
-    return d.copyWith(name: id.name, phone: id.phone, orgName: id.orgName);
+  void _onPermanent(PendingAction a, String message) {
+    _emit(message, error: true);
+    _scheduleRefresh();
   }
 
-  /// اسم المطعم ورقم دعمه (لزرّ «المساعدة والدعم»).
-  Future<OrgInfo?> orgInfo() async {
-    if (!connected) return const OrgInfo(name: 'مطعم مؤتمات (تجريبي)', supportPhone: '0500000000');
+  void _onTransient(PendingAction a, String message) {
+    if (!state.offline) state = state.copyWith(offline: true);
+  }
+
+  // ---------- الأفعال ----------
+
+  List<RouteGroupView> get _groups => buildRouteGroupViews(state.stops, state.local);
+
+  RouteGroupView? _group(String key) {
+    for (final g in _groups) {
+      if (g.key == key) return g;
+    }
+    return null;
+  }
+
+  /// يوجّه المحطّةَ الحاليّة «في الطريق» إن كان كيسُها معه.
+  ///
+  /// ⚠ كيسٌ لم يُحمَّل لا يُرسَل «في الطريق»: الخادمُ يعدّه محمَّلًا عندها،
+  ///   والعميلُ يرى مندوبَه قادمًا وكيسُه ما زال في المطبخ. تبقى حاليّةً بتحذير
+  ///   «هذا الكيس لم يُحمَّل — هل هو معك؟» حتّى يقول «نعم، معي».
+  Future<void> _advance(String key, {PendingAction? parent}) async {
+    final g = _group(key);
+    final next = g?.current;
+    if (g == null || g.phase != RoutePhase.onRoute || next == null) return;
+    if (next.status == StopStatus.enroute || !next.isLoaded) return;
+    await _queue.enqueue(next.id, 'enroute', parentKey: parent?.key, commitAt: parent?.commitAt);
+  }
+
+  Future<void> markLoaded(String stopId) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed || s.isLoaded) return;
+    final wasCurrent = _group(s.slotKey)?.current?.id == stopId;
+    final a = await _queue.enqueue(stopId, 'picked', grace: _timing.loadGrace);
+    // «نعم، معي» على المحطّة الحاليّة يجعلها «في الطريق» — ويُلغى معها إن تراجع.
+    if (wasCurrent) await _advance(s.slotKey, parent: a);
+  }
+
+  Future<ScanResult> markLoadedByScan(String raw) async {
+    final id = parseBagQr(raw);
+    if (id == null) {
+      _lastScanned = null;
+      return ScanResult.invalid;
+    }
+    Stop? hit;
+    for (final s in state.stops) {
+      if (s.subscriptionDayId?.toLowerCase() == id) hit = s;
+    }
+    _lastScanned = hit;
+    if (hit == null) return ScanResult.unknown;
+    if (hit.isLoaded) return ScanResult.alreadyLoaded;
+    await markLoaded(hit.id);
+    return ScanResult.loaded;
+  }
+
+  Future<void> startRoute(String groupKey) async {
+    final l = state.local;
+    if (!l.started.contains(groupKey)) _setLocal(l.copyWith(started: {...l.started, groupKey}));
+    await _advance(groupKey);
+  }
+
+  Future<void> deliver(String stopId, {List<int>? photo}) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed) return;
+    final hasPhoto = photo != null && photo.isNotEmpty;
+    // الخادمُ يحرس كذلك — والحارسُ هنا كي لا يُغلق التطبيقُ محطّةً ثمّ يُعيدها بعد ١٠ ثوانٍ.
+    if ((state.profile?.photoRequired ?? false) && !hasPhoto) {
+      _emit('صورة التسليم إلزاميّة في هذا المطعم', error: true);
+      return;
+    }
+    await _close(s, 'delivered', photo: hasPhoto ? photo : null);
+  }
+
+  Future<void> leaveAtDoor(String stopId, List<int> photo) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed) return;
+    if (!(state.profile?.doorAllowed ?? true)) {
+      _emit('الترك عند الباب غير مسموح في هذا المطعم', error: true);
+      return;
+    }
+    if (photo.isEmpty) {
+      _emit('الترك عند الباب يحتاج صورة', error: true);
+      return;
+    }
+    await _close(s, 'delivered_door', photo: photo);
+  }
+
+  Future<void> fail(String stopId, String reason) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed) return;
+    final r = reason.trim();
+    if (r.isEmpty) {
+      _emit('اختر سبب التعذّر', error: true);
+      return;
+    }
+    await _close(s, 'failed', reason: r);
+  }
+
+  Future<void> _close(Stop s, String action, {List<int>? photo, String? reason}) async {
+    final wasCurrent = _group(s.slotKey)?.current?.id == s.id;
+    final a = await _queue.enqueue(s.id, action, photo: photo, reason: reason, grace: _timing.closeGrace);
+    if (_repo.isDemo) {
+      _demoTrail
+        ..remove(s.id)
+        ..add(s.id);
+      _recompute();
+    }
+    if (wasCurrent) await _advance(s.slotKey, parent: a);
+  }
+
+  Future<void> deferStop(String stopId) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed) return;
+    final key = s.slotKey;
+    final l = state.local;
+    _setLocal(l.copyWith(
+      deferred: [...l.deferred.where((x) => x != stopId), stopId],
+      pinned: l.pinned == stopId ? null : l.pinned,
+    ));
+    final next = _group(key)?.current;
+    // آخرُ مفتوحٍ يبقى حاليًّا — لا معنى لإطفاء تتبّعه ثمّ إشعاله.
+    if (next == null || next.id == stopId) return;
+    if (s.status == StopStatus.enroute) await _queue.enqueue(stopId, 'defer');
+    await _advance(key);
+  }
+
+  Future<void> goNow(String stopId) async {
+    final s = state.stopById(stopId);
+    if (s == null || s.isClosed) return;
+    final key = s.slotKey;
+    final l = state.local;
+    _setLocal(l.copyWith(
+      pinned: stopId,
+      deferred: [for (final x in l.deferred) if (x != stopId) x],
+      started: {...l.started, key},
+    ));
+    // كلُّ ما عداها «في الطريق» يُطفأ: عميلٌ واحدٌ يرى مندوبَه قادمًا.
+    final g = _group(key);
+    for (final o in g?.open ?? const <Stop>[]) {
+      if (o.id != stopId && o.status == StopStatus.enroute) await _queue.enqueue(o.id, 'defer');
+    }
+    await _advance(key);
+  }
+
+  bool undo(String actionKey) => _queue.undo(actionKey);
+
+  void recordCall(String stopId) {
+    final l = state.local;
+    _setLocal(l.copyWith(calls: {...l.calls, stopId: (l.calls[stopId] ?? 0) + 1}));
+  }
+
+  void ackGroup(String groupKey) {
+    final l = state.local;
+    if (!l.acked.contains(groupKey)) _setLocal(l.copyWith(acked: {...l.acked, groupKey}));
+  }
+
+  Future<void> loadHistory() async {
     try {
-      return await _repo!.orgInfo();
+      final h = await _repo.history();
+      if (!_disposed && state.signedIn) state = state.copyWith(history: h, historyLoaded: true);
+    } on DriverActionError catch (e) {
+      if (e.isSession) return _sessionDied();
+      _emit(e.isTransient ? 'تعذّر تحميل السجلّ — تحقّق من الاتصال' : e.message, error: true);
     } catch (_) {
-      return null;
+      _emit('تعذّر تحميل السجلّ — تحقّق من الاتصال', error: true);
     }
-  }
-
-  // ---------- المصادقة (OTP: رمز مؤسسة + جوال) ----------
-  /// يرسل رمز التحقّق؛ يعيد اسم المؤسسة. يرمي عند الفشل.
-  Future<String> sendOtp(String orgCode, String phone) async {
-    if (!connected) return '';
-    return _repo!.sendOtp(orgCode, phone);
-  }
-
-  Future<void> verifyOtp(String orgCode, String phone, String otp, String name) async {
-    if (connected) {
-      await _repo!.verifyOtp(orgCode, phone, otp, name.trim().isEmpty ? null : name.trim());
-      state = _applyIdentity(state.copyWith(authed: true));
-      await refresh();
-      await _subscribeOrders();
-    } else {
-      state = state.copyWith(authed: true);
-    }
-  }
-
-  /// يحفظ اسم المندوب عند أول دخول (لمن لا اسم له). يعيد true عند نجاح الحفظ
-  /// في الخادم. عند تعذّر الحفظ نعكس الاسم محليًّا حتى لا يضيع.
-  Future<bool> setDriverName(String name) async {
-    final n = name.trim();
-    if (n.isEmpty) return false;
-    if (connected) {
-      try {
-        await _repo!.updateName(n);
-        state = _applyIdentity(state);
-        return true;
-      } catch (_) {
-        state = state.copyWith(name: n);
-        return false;
-      }
-    }
-    state = state.copyWith(name: n);
-    return true;
-  }
-
-  Future<void> logout() async {
-    await _ordersSub?.cancel();
-    _ordersSub = null;
-    // البثُّ يتوقّف مع الجلسة: رمزٌ أُبطل لا يبقى يبثّ موقعَ صاحبه.
-    await _broadcaster?.stop();
-    _broadcaster = null;
-    if (connected) {
-      await _repo!.signOut();
-      state = _connectedInitial();
-    } else {
-      state = state.copyWith(authed: false);
-    }
-  }
-
-  /// اشتراك لحظي: عند تغيّر أي من طلبات المندوب نُعيد التحميل (Realtime).
-  Future<void> _subscribeOrders() async {
-    if (!connected) return;
-    final id = _repo!.driverId;
-    if (id == null || id.isEmpty) return;
-    await _ordersSub?.cancel();
-    _ordersSub = _repo!.myOrdersChanges(id).listen((_) => refresh());
-
-    // رسائل المحادثة الواردة لحظيًّا → إشعار نظام + تحديث المحادثة المفتوحة.
-    await _msgSub?.cancel();
-    _msgSub = _repo!.incomingMessages.listen(_onIncomingMessage);
-    await NotificationsService.instance.init();
-
-    // إشعارات فورية (تصل والتطبيق مغلق): تسجيل رمز الجهاز برمز الجلسة.
-    //
-    // ⛔ وتفضيلُ المندوب يُقرأ **قبل** التسجيل: هذه تُنادى عند كلّ اتّصال،
-    //   فمن أطفأ الإشعارات كان تسجيلُه يُعاد عند أوّل فتحٍ للتطبيق — فيعود
-    //   المفتاحُ زينةً من بابٍ آخر.
-    final session = _repo!.sessionToken;
-    if (session != null && await PushService.isEnabled()) {
-      PushService.instance.registerToken(session);
-    }
-  }
-
-  Future<void> _onIncomingMessage(IncomingMessage msg) async {
-    if (msg.sender != 'customer') return; // رسائل المندوب نفسه لا تُشعِر
-    // نجد التوصيلة صاحبة هذا الطلب
-    Order? order;
-    for (final o in state.orders) {
-      if (o.id == msg.deliveryId) {
-        order = o;
-        break;
-      }
-    }
-    if (order == null) return;
-    // حدّث رسائل المحادثة (سواء كانت مفتوحة أو لا — لتكون جاهزة عند الفتح)
-    // ⛔ ويُنتظَر الآن: نصُّ الإشعار يُقرأ من هذه القائمة لا من البثّ.
-    await loadMessages(order.id);
-    // أشعر المندوب فقط إن لم تكن محادثة هذا الطلب مفتوحة أمامه الآن
-    if (_openChatId != order.id) {
-      final t = ref.read(stringsProvider);
-      // 🚨 **النصُّ من المسار المحروس لا من الجرس** (0457). كان يُقرأ من
-      //   `msg.body` — أي من بثٍّ على قناةٍ **عامّة** يسمعه أيُّ حاملٍ للمفتاح
-      //   العلنيّ. فأُفرغت الحمولةُ من النصّ وبقي الجرسُ (مَن ومتى)، ويُقرأ
-      //   النصُّ من `driver_delivery_messages` المحروسةِ برمز المندوب — وهي
-      //   محمَّلةٌ للتوّ في السطر أعلاه، فلا نداءَ زائد.
-      final loaded = state.messages[order.id] ?? const <ChatMessage>[];
-      ChatMessage? last;
-      for (final m in loaded.reversed) {
-        if (!m.outgoing) { last = m; break; }
-      }
-      NotificationsService.instance.showMessage(
-        title: t.messageFrom(order.name),
-        body: last?.text ?? t.newMessage,
-      );
-    }
-  }
-
-  /// إعادة تحميل الطلبات والإحصاءات والسجل (الوضع المتّصل فقط).
-  ///
-  /// الجلسة تبقى حتى يسجّل المندوب خروجه بنفسه أو يُعطَّل حسابه من صفحة
-  /// المناديب: خطأ «جلسة غير صالحة» (حساب معطَّل/رمز مُبطَل) → خروج تلقائي؛
-  /// أمّا أخطاء الشبكة العابرة فتُتجاهل وتبقى الجلسة والبيانات كما هي.
-  Future<void> refresh() async {
-    if (!connected) return;
-    try {
-      final orders = await _repo!.myOrders();
-      final stats = await _repo!.todayStats();
-      final history = await _repo!.history();
-      state = state.copyWith(
-        orders: orders,
-        history: history,
-        total: stats.total,
-        delivered: stats.delivered,
-        remaining: stats.remaining,
-      );
-      // 🚨 **كان يُمرَّر `order_id` والمشتَرَكُ به `delivery-chat:` — فلا رسالةَ
-      //   حيّةٌ تصل أبدًا.** 0434 نقلت البثَّ إلى `delivery-chat:<delivery_id>`
-      //   وأصلح المستودعُ نصفَه (سطر الاشتراك في `supabase_driver_repository`)
-      //   وبقي هذا النصفُ على المعرّف القديم. فالتطبيقُ يشترك في قناةٍ لا يبثّ
-      //   عليها أحد: `NotificationsService.showMessage` شيفرةٌ ميّتة، والمندوبُ
-      //   لا يعلم برسالةِ عميلٍ إلّا إن فتح المحادثةَ واعتمد على استطلاع ٨ ثوانٍ.
-      //
-      // ⚠ وشرطُ `orderId != null` كان يُسقط **توصيلاتِ الاشتراك كلَّها** (٩ من
-      //   ٢٤ حيًّا) — وهي جوهرُ المنتج لا حالتُه النادرة. و`o.id` هو معرّفُ
-      //   التوصيلة، موجودٌ دائمًا، وهو ما تبثّ عليه القاعدة.
-      _repo!.syncMessageChannels({
-        for (final o in orders)
-          if (o.active) o.id,
-      });
-
-      // 🚨 **بثُّ الموقع مربوطٌ بوجود توصيلةٍ مفتوحة، لا بشاشةٍ مفتوحة.**
-      //   كان `LocationBroadcaster` يُنشأ في `initState` لشاشة الخريطة ويموت
-      //   في `dispose`ها — فيكفي أن يضغط المندوبُ سهمَ الرجوع ليرى بقيّةَ
-      //   القائمة، أو يفتحَ المحادثةَ من التبويب السفليّ، حتّى يتوقّف البثُّ
-      //   وتتجمّد النقطةُ على خريطة العميل عند آخر موضع — **والطلبُ ما زال
-      //   معلَّمًا «في الطريق»**. فيرى العميلُ مندوبًا واقفًا لا يتحرّك، وهو
-      //   يتحرّك.
-      //
-      //   والمنصّةُ كانت جاهزةً للخلفيّة أصلًا (إذنُ iOS «دائمًا» مع
-      //   `allowBackgroundLocationUpdates`، وخدمةُ أندرويد الأماميّة داخل
-      //   `LocationBroadcaster`) — لم يكن ينقص إلّا **مالكٌ يعيش أطولَ من
-      //   الشاشة**. وهذا هو: `DriverNotifier` مقيمٌ في نطاق التطبيق.
-      await _syncLocationBroadcast(orders);
-    } catch (e) {
-      if (e.toString().contains('جلسة غير صالحة')) {
-        await logout();
-      }
-      // غير ذلك: خطأ شبكة عابر — المحاولة التالية (الاستطلاع الدوري) تعيد التحميل.
-    }
-  }
-
-  // ---------- الخطوات ----------
-
-  /// 🚨 **حارسُ الجلسة الميّتة كان في `refresh()` وحدَها.**
-  ///
-  /// فالمسارُ المباشر — «استلمت» و«في الطريق» و«تعذّر التسليم» — يرمي من
-  /// المستودع مباشرةً إلى الشاشة، فتعرض «تعذّر الحفظ» عامًّا. والمندوبُ الذي
-  /// أُبطلت جلستُه (خروجٌ من جهازٍ آخر، أو تعطيلُ حسابه من صفحة المناديب)
-  /// يبقى في التطبيق يضغط ويُردّ، ولا يُخرَج ولا يُقال له لماذا.
-  ///
-  /// و`refresh()` تُنادى بعد كلّ خطوةٍ ناجحة — فالحارسُ هناك لا يبلغه أصلًا
-  /// حين تفشل الخطوةُ نفسُها.
-  ///
-  /// ⚠ والمقياسُ نصٌّ واحدٌ لأنّ 0472 وحّدت جملةَ الخادم: كانت
-  ///   `driver_set_status` وحدَها تقول غيرَها فلا تُطابق.
-  Future<T> _guardSession<T>(Future<T> Function() body) async {
-    try {
-      return await body();
-    } catch (e) {
-      if (e.toString().contains('جلسة غير صالحة')) {
-        await logout();
-      }
-      rethrow; // الشاشةُ تعرض رسالتَها، والخروجُ وقع
-    }
-  }
-
-  void _setStatusMock(String id, OrderStatus status) {
-    state = state.copyWith(orders: [
-      for (final o in state.orders) o.id == id ? o.copyWith(status: status) : o,
-    ]);
-  }
-
-  Future<void> confirmPickup(String id) async {
-    if (connected) {
-      _setStatusMock(id, OrderStatus.picked); // انعكاس فوري في الواجهة
-      await _guardSession(() => _repo!.confirmPickup(id));
-      await refresh(); // مزامنة حقيقة الخادم (0144 يعيد 'picked')
-    } else {
-      _setStatusMock(id, OrderStatus.picked);
-    }
-  }
-
-  /// استلامُ كلّ الطلبات المعلّقة دفعةً واحدة.
-  ///
-  /// ⚠ ولا يُنادى `confirmPickup` في حلقة: كلٌّ منها يستدعي `refresh()` — أي
-  ///   ثلاثةُ نداءاتِ شبكةٍ لكلّ طلب، وقائمةٌ تُعاد بناؤها تحت يد المندوب بين
-  ///   طلبٍ وآخر. فالتأكيداتُ تُرسل ثمّ تُزامَن **مرّةً واحدة** في النهاية.
-  ///
-  /// ويُعيد عددَ ما استُلم فعلًا: صفرٌ يعني ألّا شيءَ كان معلّقًا، والشاشةُ
-  /// تفرّق بين «استلمتُ عشرة» و«لم يكن ثمّة شيء».
-  Future<int> confirmPickupAll() async {
-    final pending = [
-      for (final o in state.orders)
-        if (o.active && !o.picked) o.id,
-    ];
-    if (pending.isEmpty) return 0;
-    for (final id in pending) {
-      _setStatusMock(id, OrderStatus.picked); // انعكاسٌ فوريّ في الواجهة
-    }
-    if (connected) {
-      for (final id in pending) {
-        await _guardSession(() => _repo!.confirmPickup(id));
-      }
-      await refresh(); // مزامنةٌ واحدةٌ بعد الكلّ لا بعد كلّ واحد
-    }
-    return pending.length;
-  }
-
-  Future<void> confirmEnroute(String id) async {
-    if (connected) {
-      _setStatusMock(id, OrderStatus.enroute); // انعكاس فوري في الواجهة
-      await _guardSession(() => _repo!.confirmEnroute(id));
-      await refresh();
-    } else {
-      _setStatusMock(id, OrderStatus.enroute);
-    }
-  }
-
-  /// تأكيد التسليم مع صورة الإثبات (تُرفع عبر دالة الحافة في الوضع المتّصل).
-  Future<void> confirmDelivered(String id, List<int> photoBytes) async {
-    if (connected) {
-      await _guardSession(() => _repo!.confirmDelivered(id, photoBytes));
-      await refresh();
-    } else {
-      _completeMock(id, ok: true, sub: 'سُلّم ${nowTime()}');
-    }
-  }
-
-  Future<void> markFailed(String id, String reason) async {
-    if (connected) {
-      await _guardSession(() => _repo!.markFailed(id, reason));
-      await refresh();
-    } else {
-      _completeMock(id, ok: false, sub: reason);
-    }
-  }
-
-  void _completeMock(String id, {required bool ok, required String sub}) {
-    final done = state.orderById(id);
-    if (done == null) return;
-    final newDelivered = ok ? (state.delivered + 1).clamp(0, state.total) : state.delivered;
-    state = state.copyWith(
-      orders: [for (final o in state.orders) if (o.id != id) o],
-      history: [HistoryItem(id: done.id, name: done.name, sub: sub, ok: ok), ...state.history],
-      delivered: newDelivered,
-      remaining: state.total - newDelivered,
-    );
   }
 
   // ---------- المحادثة ----------
-  // id = معرّف التوصيلة (delivery_id)؛ المحادثة مرتبطة بـ order_id للطلب.
-  // 0291 — المحادثةُ بالتوصيلة. وكان هنا سطران يترجمان معرّفَ التوصيلة إلى
-  // معرّف الطلب ثمّ **يعودان صامتَين** إن كان فارغًا: «توصيلة اشتراك بلا طلب →
-  // لا محادثة». وذلك يعني أنّ ٧٤ من ٨٩ توصيلةً في الإنتاج — كلُّ عمل الاشتراك —
-  // لم يكن لها محادثةٌ ألبتّة، والمندوبُ يفتحها فيراها فارغةً بلا سبب.
-  Future<void> loadMessages(String id) async {
-    if (!connected) return;
-    final msgs = await _repo!.messages(id);
-    state = state.copyWith(messages: {...state.messages, id: msgs});
+
+  Future<void> loadMessages(String stopId) async {
+    try {
+      final msgs = await _repo.messages(stopId);
+      if (!_disposed && state.signedIn) state = state.copyWith(messages: {...state.messages, stopId: msgs});
+    } on DriverActionError catch (e) {
+      if (e.isSession) await _sessionDied();
+    } catch (_) {}
   }
 
-  Future<void> sendMessage(String id, String text) async {
-    if (connected) {
-      await _repo!.sendMessage(id, text);
-      await loadMessages(id);
-    } else {
-      final list = List<ChatMessage>.of(state.messages[id] ?? const []);
-      list.add(ChatMessage(outgoing: true, text: text, time: nowTime()));
-      state = state.copyWith(messages: {...state.messages, id: list});
+  Future<bool> sendMessage(String stopId, String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return false;
+    try {
+      await _repo.sendMessage(stopId, t);
+    } on DriverActionError catch (e) {
+      if (e.isSession) await _sessionDied();
+      return false;
+    } catch (_) {
+      return false;
     }
+    await loadMessages(stopId);
+    return true;
+  }
+
+  /// المحادثةُ المفتوحة أمامه: لا إشعارَ عن رسائلها، وتُستطلع كلّ ٨ ثوانٍ احتياطًا
+  /// لبثٍّ لحظيٍّ ضاع.
+  void setOpenChat(String? stopId) {
+    _openChat = stopId;
+    _chatPoll?.cancel();
+    _chatPoll = null;
+    if (stopId == null) return;
+    unawaited(loadMessages(stopId));
+    _chatPoll = Timer.periodic(_timing.chatPollEvery, (_) => unawaited(loadMessages(stopId)));
+  }
+
+  Future<void> _onIncoming(IncomingMessage msg) async {
+    if (msg.sender != 'customer') return; // رسائلُ المندوب نفسه لا تُشعِر
+    final s = state.stopById(msg.deliveryId);
+    if (s == null) return;
+    // 🚨 النصُّ من المسار المحروس لا من الجرس (0457) — القناةُ عامّة.
+    await loadMessages(s.id);
+    if (_openChat == s.id || _repo.isDemo) return;
+    ChatMessage? last;
+    for (final m in (state.messages[s.id] ?? const <ChatMessage>[]).reversed) {
+      if (!m.outgoing) {
+        last = m;
+        break;
+      }
+    }
+    // الإشعارُ بلغة التطبيق التي اختارها المندوب، لا بالعربيّة دائمًا.
+    final en = ref.read(localeProvider) == 'en';
+    final who = s.customerName.isEmpty ? s.bagLabel : s.customerName;
+    try {
+      await NotificationsService.instance.showMessage(
+        title: en ? 'Message from $who' : 'رسالة من $who',
+        body: last?.text ?? (en ? 'New message' : 'رسالة جديدة'),
+      );
+    } catch (_) {}
   }
 }
-
-final driverProvider = NotifierProvider<DriverNotifier, DriverData>(DriverNotifier.new);

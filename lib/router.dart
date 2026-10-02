@@ -1,104 +1,90 @@
-// material.dart يغني عن foundation.dart (كان مستوردًا قبل إضافة SwipeBack).
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'state.dart';
-import 'widgets.dart';
-import 'screens/splash_screen.dart';
-import 'screens/login_screen.dart';
-import 'screens/home_screen.dart';
-import 'screens/pickup_screen.dart';
-import 'screens/customers_screen.dart';
+
+import 'data/crash_reporter.dart';
 import 'screens/chat_screen.dart';
-import 'screens/map_screen.dart';
-import 'screens/deliver_screen.dart';
 import 'screens/history_screen.dart';
+import 'screens/home_shell.dart';
+import 'screens/login_screen.dart';
+import 'screens/map_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/route_screen.dart';
+import 'screens/scanner_screen.dart';
+import 'screens/splash_screen.dart';
+import 'state.dart';
 
-/// يلفّ الشاشة بإيماءة «اسحب للرجوع»: تُفضَّل عودةُ المكدّس إن وُجد، وإلّا
-/// فالوجهةُ الأمّ المصرَّح بها — وهي نفسُها التي يذهب إليها سهمُ الشاشة.
-Widget _back(BuildContext context, String parent, Widget child) => SwipeBack(
-      onBack: () => context.canPop() ? context.pop() : context.go(parent),
-      child: child,
-    );
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// ============================================================================
-/// **البلاغ**: «السحبُ للرجوع مقلوب: أسحب من اليمين لليسار وحركةُ الشاشة تظهر
-/// من اليسار لليمين.»
-///
-/// والإيماءةُ نفسُها سليمةٌ (`SwipeBack` يحسب RTL صحيحًا: الحافةُ اليمنى،
-/// والداخلُ يسارًا). **العلّةُ في الحركة لا في السحب.**
-///
-/// الشاشاتُ الخمس تبويباتٌ في الشريط السفليّ، والتنقّلُ بينها كلُّه `go` —
-/// أي **استبدالٌ لا دفع**. فـ`canPop()` أبدًا false، والرجوعُ يُنفَّذ
-/// `go('/home')` وهو انتقالٌ **إلى الأمام**: تنزلق الصفحةُ الجديدة داخلةً كما
-/// تنزلق عند التقدّم. فتقول الإيماءةُ «رجوع» وتقول الحركةُ «تقدّم».
-///
-/// والعلاجُ ليس عكسَ الإيماءة — تلك صحيحة — بل **نزعُ الاتّجاه من حركة
-/// التبويبات**: التبويباتُ لا تنزلق في أيّ تطبيق، تتلاشى. فلا تعاكس الإيماءةَ
-/// لأنّها لا تدّعي اتّجاهًا أصلًا.
-///
-/// أمّا الشاشاتُ الورقيّة (محادثة · خريطة · تسليم) فتُدفع دفعًا وتُرجَع
-/// بـ`pop`، فتنزلق الحركةُ عكسيًّا كما ينتظر المستعمل.
+/// المُوجِّه — حارسُ الجلسة في موضعٍ واحد:
+///   • أثناء الاستعادة: كلُّ وجهةٍ تمرّ بالبداية وتُحفظ لتُفتح بعدها (نقرةُ إشعار).
+///   • خارج الجلسة: الدخولُ وحدَه، ومعه ماسحُ رمز المطعم.
+///   • داخلها: لا رجوعَ إلى الدخول.
+/// التبويباتُ الثلاثة `StatefulShellRoute`: كلٌّ يحفظ تمريرَه وحالتَه، والشاشاتُ
+/// الكاملة (محادثة · خريطة · ماسح) تُدفع فوقها وتُرجَع بـ`pop`.
 /// ============================================================================
-CustomTransitionPage<void> _fadeTab(Widget child) => CustomTransitionPage<void>(
-      child: child,
-      transitionDuration: const Duration(milliseconds: 160),
-      reverseTransitionDuration: const Duration(milliseconds: 160),
-      transitionsBuilder: (_, animation, _, page) =>
-          FadeTransition(opacity: animation, child: page),
-    );
+String? authRedirect(AuthStatus auth, Uri uri) {
+  final path = uri.path;
+  if (path == '/splash') return null; // البدايةُ تقرّر وجهتَها بنفسها
+  if (auth == AuthStatus.restoring) {
+    return Uri(path: '/splash', queryParameters: {'from': uri.toString()}).toString();
+  }
+  final orgScan = path == '/scan' && uri.queryParameters['mode'] == 'org';
+  if (auth == AuthStatus.signedOut) {
+    return (path == '/login' || orgScan) ? null : '/login';
+  }
+  if (path == '/login') return '/route';
+  return null;
+}
 
-GoRouter buildRouter(Ref ref, Listenable refreshListenable) {
-  return GoRouter(
+GoRouter buildRouter(Ref ref, Listenable refresh) {
+  final router = GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
-    // يعيد تقييم redirect عند تغيّر حالة الدخول — وإلا بقي المندوب عالقًا على
-    // شاشة الدخول بعد استعادة الجلسة المحفوظة (يبدو كأنه سُجّل خروجه تلقائيًّا).
-    refreshListenable: refreshListenable,
-    redirect: (context, state) {
-      final loc = state.matchedLocation;
-      if (loc == '/splash') return null; // السبلاش يقرّر وجهته بنفسه بعد ٣ ثوانٍ
-      final authed = ref.read(driverProvider).authed;
-      final atGate = loc == '/login';
-      if (!authed && !atGate) return '/login';
-      if (authed && atGate) return '/home';
-      return null;
-    },
+    refreshListenable: refresh,
+    redirect: (context, state) => authRedirect(ref.read(driverProvider).auth, state.uri),
     routes: [
-      // ======================================================================
-      // السحبُ من الحافة للرجوع — يُلَفّ **هنا** لا في الشاشات.
-      // ----------------------------------------------------------------------
-      // شاشاتُ هذا التطبيق تتنقّل بـ`go` (تبديلٌ لا تكديس)، فلا مكدّسَ تسحبه
-      // إيماءةُ Flutter. ولفُّ كلّ شاشةٍ على حدة يعني جراحةَ أقواسٍ في خمسة
-      // ملفّات (جرّبتُها فكسرت أربعةً) — والمُوجِّه موضعٌ واحدٌ يراه الجميع.
-      //
-      // و`back` لكلّ مسارٍ هو **وجهةُ سهم تلك الشاشة نفسِها**: لا يُخمَّن.
-      // ولا سحبَ في `/splash` و`/login`: ليس خلفهما شيءٌ يُرجع إليه.
-      // ======================================================================
-      GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
+      GoRoute(
+        path: '/splash',
+        builder: (c, s) => SplashScreen(from: s.uri.queryParameters['from']),
+      ),
       GoRoute(path: '/login', builder: (c, s) => const LoginScreen()),
-      // التبويباتُ الخمس: تلاشٍ بلا اتّجاه (انظر `_fadeTab` أعلاه).
-      GoRoute(path: '/home', pageBuilder: (c, s) => _fadeTab(const HomeScreen())),
-      GoRoute(path: '/pickup', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const PickupScreen()))),
-      GoRoute(path: '/customers', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const CustomersScreen()))),
-      GoRoute(path: '/history', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const HistoryScreen()))),
-      GoRoute(path: '/profile', pageBuilder: (c, s) => _fadeTab(_back(c, '/home', const ProfileScreen()))),
+      StatefulShellRoute.indexedStack(
+        builder: (c, s, shell) => HomeShell(shell: shell),
+        branches: [
+          StatefulShellBranch(routes: [GoRoute(path: '/route', builder: (c, s) => const RouteScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/history', builder: (c, s) => const HistoryScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen())]),
+        ],
+      ),
       GoRoute(
-          path: '/chat/:id',
-          builder: (c, s) => _back(c, '/customers', ChatScreen(orderId: s.pathParameters['id']!))),
+        path: '/chat/:id',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (c, s) => ChatScreen(stopId: s.pathParameters['id']!),
+      ),
+      GoRoute(path: '/map', parentNavigatorKey: rootNavigatorKey, builder: (c, s) => const MapScreen()),
       GoRoute(
-          path: '/map/:id',
-          builder: (c, s) => _back(c, '/customers', MapScreen(orderId: s.pathParameters['id']!))),
-      GoRoute(
-          path: '/deliver/:id',
-          builder: (c, s) => _back(c, '/home', DeliverScreen(orderId: s.pathParameters['id']!))),
+        path: '/scan',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (c, s) => ScannerScreen(mode: s.uri.queryParameters['mode'] == 'org' ? 'org' : 'bags'),
+      ),
     ],
   );
+  // اسمُ الشاشة يُرسل مع تقرير الانهيار — يُعرف أين سقط المندوب.
+  router.routerDelegate.addListener(() {
+    CrashReporter.currentRoute = router.routerDelegate.currentConfiguration.uri.path;
+  });
+  return router;
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier(0);
   ref.onDispose(refresh.dispose);
-  ref.listen<bool>(driverProvider.select((d) => d.authed), (prev, next) => refresh.value++);
-  return buildRouter(ref, refresh);
+  // يعيد تقييمَ الحارس حين تتغيّر الجلسة — وإلّا بقي المندوبُ على شاشة الدخول
+  // بعد الاستعادة، أو داخل التطبيق بعد موت الجلسة.
+  ref.listen(driverProvider.select((s) => s.auth), (_, _) => refresh.value++);
+  final router = buildRouter(ref, refresh);
+  ref.onDispose(router.dispose);
+  return router;
 });

@@ -1,207 +1,78 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../l10n.dart';
 import '../moaatmat_logo.dart';
 import '../state.dart';
-import '../widgets.dart';
+import '../theme.dart';
 
-/// شاشة افتتاحية (٣ ثوانٍ): الشعار يظهر بحركة ارتدادية ثم الاسم، وخلالها
-/// تكتمل استعادة الجلسة المحفوظة — فتهبط مباشرة على الرئيسية أو الدخول.
+/// ============================================================================
+/// شاشةُ البدء — لا تنتظر وقتًا ثابتًا: تنتقل لحظةَ تنتهي استعادةُ الجلسة،
+/// وبحدٍّ أدنى 700 ملّي ثانية كي لا تومض العلامةُ وتختفي كخلل.
+/// ============================================================================
 class SplashScreen extends ConsumerStatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, this.from});
+
+  /// وجهةٌ طُلبت أثناء الاستعادة (نقرةُ إشعار) — يُذهب إليها بعدها.
+  final String? from;
 
   @override
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..forward();
-
-  late final Animation<double> _logoScale = Tween(begin: 0.6, end: 1.0).animate(
-      CurvedAnimation(parent: _c, curve: const Interval(0, 0.55, curve: Curves.easeOutBack)));
-  late final Animation<double> _logoFade =
-      CurvedAnimation(parent: _c, curve: const Interval(0, 0.4, curve: Curves.easeOut));
-  late final Animation<double> _nameFade =
-      CurvedAnimation(parent: _c, curve: const Interval(0.45, 0.85, curve: Curves.easeOut));
-  late final Animation<Offset> _nameSlide =
-      Tween(begin: const Offset(0, 0.4), end: Offset.zero).animate(
-          CurvedAnimation(parent: _c, curve: const Interval(0.45, 0.9, curve: Curves.easeOutCubic)));
-
+class _SplashScreenState extends ConsumerState<SplashScreen> {
+  bool _minElapsed = false;
+  bool _left = false;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer(const Duration(seconds: 3), _go);
-  }
-
-  void _go() {
-    if (!mounted) return;
-    final authed = ref.read(driverProvider).authed;
-    context.go(authed ? '/home' : '/login');
+    _timer = Timer(const Duration(milliseconds: 700), () {
+      _minElapsed = true;
+      _maybeLeave();
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _c.dispose();
     super.dispose();
+  }
+
+  void _maybeLeave() {
+    if (!mounted || _left || !_minElapsed) return;
+    final auth = ref.read(driverProvider).auth;
+    if (auth == AuthStatus.restoring) return;
+    _left = true;
+    final from = widget.from;
+    // الوجهةُ المحفوظة تُقبل إن كانت مسارًا داخليًّا فقط (تبدأ بـ«/» لا «//»).
+    final safe = from != null && from.startsWith('/') && !from.startsWith('//') && from != '/splash';
+    context.go(auth == AuthStatus.signedIn ? (safe ? from : '/route') : '/login');
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(driverProvider.select((s) => s.auth), (_, _) => _maybeLeave());
     final t = ref.watch(stringsProvider);
-    const teal = Color(0xFF0F7268);
+    final p = context.pal;
     return Scaffold(
-      backgroundColor: teal,
-      body: Stack(
-        children: [
-          const StatusBar(dark: true),
-          // دوائر زخرفية ناعمة
-          Positioned(
-            top: -90,
-            right: -70,
-            child: _circle(240, Colors.white.withValues(alpha: 0.06)),
-          ),
-          Positioned(
-            bottom: -110,
-            left: -80,
-            child: _circle(300, Colors.white.withValues(alpha: 0.05)),
-          ),
-          Positioned(
-            bottom: 140,
-            right: -40,
-            child: _circle(120, Colors.white.withValues(alpha: 0.04)),
-          ),
-          // الشعار والاسم
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FadeTransition(
-                  opacity: _logoFade,
-                  child: ScaleTransition(
-                    scale: _logoScale,
-                    child: Container(
-                      width: 118,
-                      height: 118,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 30,
-                            offset: const Offset(0, 12),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(28),
-                        child: Image.asset('assets/app_icon.png', width: 118, height: 118, fit: BoxFit.cover),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 26),
-                SlideTransition(
-                  position: _nameSlide,
-                  child: FadeTransition(
-                    opacity: _nameFade,
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Moaatmat Driver',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 27,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 7),
-                        Text(
-                          t.ar ? 'تطبيق مندوب التوصيل' : 'Delivery driver app',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontSize: 14.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // مؤشّر تحميل رقيق أسفل الشاشة
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 74,
-            child: FadeTransition(
-              opacity: _nameFade,
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.4,
-                    valueColor: AlwaysStoppedAnimation(Colors.white.withValues(alpha: 0.85)),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Powered by Moaatmat (بنفس نمط تطبيق العميل)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 26,
-            child: FadeTransition(
-              opacity: _nameFade,
-              child: Center(
-                child: Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Powered by',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.85),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const MoaatmatLogo(size: 26, accent: Color(0xFFA5B4FC), dot: Colors.white),
-                      const SizedBox(width: 5),
-                      const Text(
-                        'Moaatmat',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFFA5B4FC),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+      backgroundColor: p.surface,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const MoaatmatLogo(size: 72),
+            const SizedBox(height: 20),
+            Text(t.appName, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: p.ink)),
+            const SizedBox(height: 6),
+            Text(t.tagline, style: TextStyle(fontSize: TextSizes.body, color: p.muted)),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _circle(double size, Color color) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-      );
 }

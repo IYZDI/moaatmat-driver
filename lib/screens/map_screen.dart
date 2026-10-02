@@ -1,22 +1,59 @@
-import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../l10n.dart';
-import '../models.dart';
-import '../config/env.dart';
-import '../theme.dart';
-import '../widgets.dart';
-import '../state.dart';
 
-/// شاشة الملاحة: خرائط Google تعرض موقع المندوب الحيّ (النقطة الزرقاء)
-/// ودبوس وجهة العميل، مع بثّ الموقع للعميل وزرّ تسليم واضح.
+import '../config/env.dart';
+import '../l10n.dart';
+import '../state.dart';
+import '../theme.dart';
+import '../widgets/bag_badge.dart';
+import '../widgets/buttons.dart';
+import '../widgets/common.dart';
+import '../widgets/stop_actions.dart';
+import '../widgets/stop_card.dart' show navigateStop;
+
+/// يرسم دبّوسًا مرقّمًا (دائرةٌ ورقمٌ في وسطها) بـ`dart:ui` — خرائط جوجل لا
+/// تعرف إلّا الصور، والدبّوسُ الأحمرُ الافتراضيّ لا يقول أيُّ المحطّات هذه.
+Future<Uint8List> drawNumberedMarker(String label, {required Color fill, required Color text, required Color ring, double size = 40, double ratio = 3}) async {
+  final px = size * ratio;
+  final rec = ui.PictureRecorder();
+  final canvas = Canvas(rec);
+  final center = Offset(px / 2, px / 2);
+  canvas.drawCircle(center, px / 2 - ratio, Paint()..color = fill);
+  canvas.drawCircle(
+    center,
+    px / 2 - 2 * ratio,
+    Paint()
+      ..color = ring
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5 * ratio,
+  );
+  final tp = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: TextStyle(color: text, fontSize: px * (label.length > 2 ? 0.34 : 0.44), fontWeight: FontWeight.w800),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+  final img = await rec.endRecording().toImage(px.round(), px.round());
+  final data = await img.toByteData(format: ui.ImageByteFormat.png);
+  return data!.buffer.asUint8List();
+}
+
+LatLng _ll(LatLon p) => LatLng(p.lat, p.lng);
+
+/// ============================================================================
+/// خريطةُ المسار: المحطّاتُ المفتوحة مرقّمةً بترتيب المسار (الحاليّة رقم 1
+/// وبلون التنقّل)، والمغلقةُ رماديّة، وخطٌّ يصلها من موقعي أو من الفرع.
+/// ============================================================================
 class MapScreen extends ConsumerStatefulWidget {
-  final String orderId;
-  const MapScreen({super.key, required this.orderId});
+  const MapScreen({super.key});
 
   @override
   ConsumerState<MapScreen> createState() => _MapScreenState();
@@ -26,352 +63,235 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   static const _riyadh = LatLng(24.7136, 46.6753);
 
   GoogleMapController? _map;
-
-  StreamSubscription<Position>? _posSub;
-  LatLng? _me;
-  bool _follow = true; // الكاميرا تتبع المندوب
-  bool _didFit = false; // ضبط الإطار الأولي (المندوب + الوجهة) مرة واحدة
-  bool _hasLocationPerm = false;
-  bool _programmaticMove = false; // لتمييز تحريكنا للكاميرا عن سحب المستخدم
+  bool _locationOk = false;
+  Set<Marker> _markers = const {};
+  String _markersFor = '';
+  bool _fitted = false;
 
   @override
   void initState() {
     super.initState();
-    // 🚨 **لم تعد هذه الشاشةُ تملك البثّ.** كان هنا `LocationBroadcaster` يُنشأ
-    //   في `initState` ويموت في `dispose` — أي أنّ موقعَ المندوب يُبثّ «طوال
-    //   وجوده على شاشة الملاحة» كما كان مكتوبًا. فسهمُ الرجوع إلى القائمة، أو
-    //   فتحُ المحادثة، يجمّد النقطةَ على خريطة العميل والطلبُ ما زال «في
-    //   الطريق». المالكُ الآن `DriverNotifier` وشرطُه **وجودُ توصيلةٍ مفتوحة**
-    //   لا شاشةٍ مفتوحة. وهذه الشاشةُ تقرأ الحالةَ لتعرضها ولا تتحكّم بها.
-    _watchMyLocation();
+    if (Env.hasMaps) _checkLocation();
   }
 
-  /// تتبّع موقع الجهاز (للتتبّع بالكاميرا وخطّ المسار — النقطة الزرقاء يرسمها Google).
-  Future<void> _watchMyLocation() async {
-    if (!await Geolocator.isLocationServiceEnabled()) return;
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
-    if (mounted) setState(() => _hasLocationPerm = true);
-
-    // نبدأ بآخر موقع معروف فورًا ثم نتابع التدفّق.
+  /// النقطةُ الزرقاء تحتاج إذنَ الموقع — نقرؤه ولا نطلبه هنا: بثُّ الموقع
+  /// (`LocationBroadcaster`) هو من يطلبه حين يبدأ المسار.
+  Future<void> _checkLocation() async {
     try {
-      final last = await Geolocator.getLastKnownPosition();
-      if (last != null && mounted) {
-        setState(() => _me = LatLng(last.latitude, last.longitude));
-        _afterPositionUpdate();
-      }
+      final perm = await Geolocator.checkPermission();
+      final ok = perm == LocationPermission.always || perm == LocationPermission.whileInUse;
+      if (mounted && ok != _locationOk) setState(() => _locationOk = ok);
     } catch (_) {}
-
-    _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
-    ).listen((p) {
-      if (!mounted) return;
-      setState(() => _me = LatLng(p.latitude, p.longitude));
-      _afterPositionUpdate();
-    });
   }
 
-  LatLng? get _dest {
-    final o = ref.read(driverProvider).orderById(widget.orderId);
-    if (o?.lat == null || o?.lng == null) return null;
-    return LatLng(o!.lat!, o.lng!);
+  /// الدبابيسُ تُرسم بلا تزامن، فتُعاد فقط حين يتغيّر ما ترسمه (الترتيب والحالة).
+  Future<void> _rebuildMarkers(RouteGroupView g, Palette p, L t) async {
+    final current = g.current ?? (g.open.isEmpty ? null : g.open.first);
+    final sig = [
+      for (final s in g.open) '${s.id}:${s.id == current?.id}',
+      for (final s in g.closed) '${s.id}:c',
+      p.primary.toARGB32(),
+    ].join('|');
+    if (sig == _markersFor) return;
+    _markersFor = sig;
+    final out = <Marker>{};
+    for (var i = 0; i < g.open.length; i++) {
+      final s = g.open[i];
+      if (!hasXY(s.pos)) continue;
+      final isCurrent = s.id == current?.id;
+      final bytes = await drawNumberedMarker(
+        '${i + 1}',
+        fill: isCurrent ? p.primary : p.surface,
+        text: isCurrent ? p.onPrimary : p.primaryText,
+        ring: isCurrent ? p.onPrimary : p.primary,
+        size: isCurrent ? 48 : 40,
+      );
+      out.add(Marker(
+        markerId: MarkerId(s.id),
+        position: _ll(s.pos!),
+        zIndexInt: isCurrent ? 3 : 2,
+        icon: BitmapDescriptor.bytes(bytes, width: isCurrent ? 48 : 40, height: isCurrent ? 48 : 40),
+        infoWindow: InfoWindow(title: '${s.bagLabel} · ${firstName(s.customerName)}'),
+      ));
+    }
+    for (final s in g.closed) {
+      if (!hasXY(s.pos)) continue;
+      final bytes = await drawNumberedMarker('✓', fill: p.borderStrong, text: p.surface, ring: p.surface, size: 30);
+      out.add(Marker(
+        markerId: MarkerId(s.id),
+        position: _ll(s.pos!),
+        zIndexInt: 1,
+        icon: BitmapDescriptor.bytes(bytes, width: 30, height: 30),
+        infoWindow: InfoWindow(title: '${s.bagLabel} · ${firstName(s.customerName)}'),
+      ));
+    }
+    if (mounted && sig == _markersFor) setState(() => _markers = out);
   }
 
-  /// تحريك مُبرمَج للكاميرا (لا يُطفئ وضع التتبّع).
-  Future<void> _animate(CameraUpdate update) async {
+  List<LatLng> _line(RouteGroupView g, LatLon? origin) => [
+        if (hasXY(origin)) _ll(origin!),
+        for (final s in g.open)
+          if (hasXY(s.pos)) _ll(s.pos!),
+      ];
+
+  void _fit(List<LatLng> pts) {
     final map = _map;
-    if (map == null) return;
-    _programmaticMove = true;
-    try {
-      await map.animateCamera(update);
-    } finally {
-      _programmaticMove = false;
+    if (map == null || pts.isEmpty || _fitted) return;
+    _fitted = true;
+    if (pts.length == 1) {
+      map.moveCamera(CameraUpdate.newLatLngZoom(pts.first, 15));
+      return;
     }
+    var sw = pts.first, ne = pts.first;
+    for (final x in pts) {
+      sw = LatLng(x.latitude < sw.latitude ? x.latitude : sw.latitude, x.longitude < sw.longitude ? x.longitude : sw.longitude);
+      ne = LatLng(x.latitude > ne.latitude ? x.latitude : ne.latitude, x.longitude > ne.longitude ? x.longitude : ne.longitude);
+    }
+    map.moveCamera(CameraUpdate.newLatLngBounds(LatLngBounds(southwest: sw, northeast: ne), 70));
   }
 
-  void _afterPositionUpdate() {
-    if (_map == null || _me == null) return;
-    final dest = _dest;
-    if (!_didFit) {
-      _didFit = true;
-      if (dest != null) {
-        // إطار يجمع المندوب والوجهة معًا
-        final sw = LatLng(
-          _me!.latitude < dest.latitude ? _me!.latitude : dest.latitude,
-          _me!.longitude < dest.longitude ? _me!.longitude : dest.longitude,
-        );
-        final ne = LatLng(
-          _me!.latitude > dest.latitude ? _me!.latitude : dest.latitude,
-          _me!.longitude > dest.longitude ? _me!.longitude : dest.longitude,
-        );
-        _animate(CameraUpdate.newLatLngBounds(LatLngBounds(southwest: sw, northeast: ne), 90));
-        return;
-      }
-    }
-    if (_follow) _animate(CameraUpdate.newLatLng(_me!));
-  }
-
-  @override
-  void dispose() {
-    _posSub?.cancel();
-    super.dispose();
-  }
-
-  /// فتح الملاحة في خرائط جوجل — بالإحداثيات إن وُجدت، وإلا بالعنوان النصي.
-  Future<void> _openMaps(Order? order) async {
-    final dest = _dest;
-    final uri = dest != null
-        ? Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}&travelmode=driving')
-        : Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(order?.address ?? '')}');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+  Future<void> _openRoute(RouteGroupView g, LatLon? origin) async {
+    final t = ref.read(stringsProvider);
+    final uri = mapsDirUrl(origin, g.open);
+    if (uri == null) return;
+    final ok = await openUri(uri);
+    if (!ok && mounted) showSnack(context, t.couldNotOpen);
   }
 
   @override
   Widget build(BuildContext context) {
     final t = ref.watch(stringsProvider);
-    final orderId = widget.orderId;
-    final order = ref.watch(driverProvider).orderById(orderId);
-    final name = (order?.name.trim().isNotEmpty ?? false) ? order!.name.trim() : t.customer;
-    final address = order?.address ?? '';
-    final distance = order?.distance.trim() ?? '';
-    final eta = order?.eta.trim() ?? '';
-    final prefTime = order?.prefTime.trim() ?? '';
-    final slot = order?.deliverySlot; // فترةُ التوصيل المبيعة (0366) — غالبًا لا شيء
-    final dest = (order?.lat != null && order?.lng != null) ? LatLng(order!.lat!, order.lng!) : null;
+    final p = context.pal;
+    final s = ref.watch(driverProvider);
+    final g = ref.watch(currentGroupProvider);
+    final origin = s.myPos ?? g?.start;
+    final current = g == null ? null : (g.current ?? (g.open.isEmpty ? null : g.open.first));
+    final line = g == null ? const <LatLng>[] : _line(g, origin);
+
+    if (g != null && Env.hasMaps) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _rebuildMarkers(g, p, t);
+      });
+    }
+
+    final Widget mapLayer;
+    if (!Env.hasMaps) {
+      // 🚨 لا تُنشأ `GoogleMap` بلا مفتاح: على iOS تُسقط `GMSMapView` التطبيقَ
+      //    بانهيارٍ أصليٍّ لا يلتقطه Flutter. البديلُ لوحةٌ تقول السبب وقائمةٌ
+      //    مرقّمة، والزرّان أسفلها يفتحان خرائط جوجل بلا مفتاحٍ أصلًا.
+      mapLayer = _NoMapPanel(group: g);
+    } else {
+      final first = line.isNotEmpty ? line.first : _riyadh;
+      mapLayer = GoogleMap(
+        initialCameraPosition: CameraPosition(target: current?.pos != null ? _ll(current!.pos!) : first, zoom: 13),
+        onMapCreated: (c) {
+          _map = c;
+          _fit(line);
+        },
+        myLocationEnabled: _locationOk,
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+        mapToolbarEnabled: false,
+        compassEnabled: false,
+        markers: _markers,
+        polylines: {
+          if (line.length > 1)
+            Polyline(
+              polylineId: const PolylineId('route'),
+              points: line,
+              width: 4,
+              color: p.primary,
+            ),
+        },
+      );
+    }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFE4E7E0),
       body: Stack(
         children: [
-          // ===== خرائط Google =====
-          // 🚨 لا تُنشأ الخريطةُ بلا مفتاح. على iOS تُسقط `GMSMapView` التطبيقَ
-          //    بـGMSServicesException — انهيارٌ أصليٌّ لا يلتقطه Flutter ولا
-          //    يظهر في صفحة الأخطاء. وعلى أندرويد تخرج رماديّةً صامتة.
-          //    فالبديلُ هنا: لوحةٌ تقول السبب، والمندوبُ يكمل عمله بزرّ
-          //    «افتح في خرائط جوجل» أسفل الشاشة — وهو موجودٌ أصلًا.
-          if (!Env.hasMaps)
-            Positioned.fill(child: _MapUnavailable(dest: dest))
-          else
-          Positioned.fill(
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(target: dest ?? _me ?? _riyadh, zoom: 14),
-              onMapCreated: (c) {
-                _map = c;
-                _afterPositionUpdate();
-              },
-              // النقطة الزرقاء الحيّة لموقع المندوب (يرسمها Google مباشرة)
-              myLocationEnabled: _hasLocationPerm,
-              myLocationButtonEnabled: false, // لدينا زرّ تمركز خاص
-              zoomControlsEnabled: false,
-              compassEnabled: false,
-              mapToolbarEnabled: false,
-              // أي سحب يدوي يوقف التتبّع التلقائي
-              onCameraMoveStarted: () {
-                if (!_programmaticMove && _follow) setState(() => _follow = false);
-              },
-              markers: {
-                if (dest != null)
-                  Marker(
-                    markerId: const MarkerId('dest'),
-                    position: dest,
-                    infoWindow: InfoWindow(title: name),
-                  ),
-              },
-              polylines: {
-                if (_me != null && dest != null)
-                  Polyline(
-                    polylineId: const PolylineId('route'),
-                    points: [_me!, dest],
-                    width: 4,
-                    color: AppColors.teal.withValues(alpha: 0.7),
-                    patterns: [PatternItem.dash(24), PatternItem.gap(12)],
-                  ),
-              },
-            ),
-          ),
-
-          // ===== الطبقة العلوية: بطاقة معلومات + شارة البثّ =====
+          Positioned.fill(child: mapLayer),
           SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                const StatusBar(),
-                Container(
-                  margin: const EdgeInsets.fromLTRB(18, 6, 18, 0),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 24, offset: Offset(0, 10))],
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  _RoundButton(
+                    icon: Icons.arrow_back,
+                    tooltip: t.back,
+                    onTap: () => context.canPop() ? context.pop() : context.go('/route'),
                   ),
-                  child: Row(
-                    children: [
-                      InkWell(
-                        onTap: () => context.canPop() ? context.pop() : context.go('/customers'),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: Icon(backChevron(context), size: 24, color: AppColors.muted2),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(color: AppColors.tealTint, borderRadius: BorderRadius.circular(12)),
-                        child: Transform.flip(flipX: true, child: const Icon(Icons.send, color: AppColors.teal, size: 20)),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(distance.isNotEmpty ? '$name · $distance' : name,
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                            if (eta.isNotEmpty)
-                              Text(eta, style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    if (ref.watch(driverProvider).broadcasting)
-                      Container(
-                        margin: const EdgeInsets.fromLTRB(18, 8, 0, 0),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(color: AppColors.teal, borderRadius: BorderRadius.circular(20)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.location_on, size: 14, color: Colors.white),
-                            const SizedBox(width: 6),
-                            Text(t.broadcastingLocation, style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    // زر إعادة التمركز على موقعي
-                    Container(
-                      margin: const EdgeInsets.fromLTRB(0, 8, 18, 0),
-                      child: Material(
-                        color: Colors.white,
-                        shape: const CircleBorder(),
-                        elevation: 3,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () {
-                            setState(() => _follow = true);
-                            if (_me != null) _animate(CameraUpdate.newLatLngZoom(_me!, 15));
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Icon(Icons.my_location, size: 20, color: _follow ? AppColors.teal : AppColors.muted2),
-                          ),
-                        ),
-                      ),
+                  const Spacer(),
+                  if (Env.hasMaps && origin != null)
+                    _RoundButton(
+                      icon: Icons.my_location,
+                      tooltip: t.myLocation,
+                      onTap: () => _map?.animateCamera(CameraUpdate.newLatLngZoom(_ll(origin), 15)),
                     ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-
-          // ===== اللوحة السفلية =====
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
               width: double.infinity,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-                boxShadow: [BoxShadow(color: Color(0x29000000), blurRadius: 24, offset: Offset(0, -8))],
+              decoration: BoxDecoration(
+                color: p.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(top: BorderSide(color: p.border)),
               ),
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 26),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (address.trim().isNotEmpty) ...[
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Padding(padding: EdgeInsets.only(top: 2), child: Icon(Icons.location_on_outlined, size: 18, color: AppColors.teal)),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(address, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink))),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                  // الفترةُ محاذيةٌ لنصّ العنوان (لا لأيقونته) كسطر المعرّف —
-                  // «أين» و«متى» في عمودٍ واحد. وتغيب كلَّها حين لا فترةَ بيعت.
-                  if (slot != null) ...[
-                    Padding(
-                      padding: const EdgeInsetsDirectional.only(start: 26),
-                      child: SlotChip(slot),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 26),
-                    child: Text(
-                      '#${shortId(orderId)}${prefTime.isNotEmpty ? ' · ${t.preferredDelivery} $prefTime' : ''}',
-                      style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  // مساعدات: محادثة العميل + فتح خرائط جوجل
-                  Row(
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SquareIconButton(icon: Icons.chat_bubble_outline, teal: true, size: 48, onTap: () => context.push('/chat/$orderId')),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Material(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(13),
-                          child: InkWell(
-                            onTap: () => _openMaps(order),
-                            borderRadius: BorderRadius.circular(13),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: AppColors.border),
-                                borderRadius: BorderRadius.circular(13),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                      if (current == null)
+                        Text(t.noOpenStops,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: TextSizes.body, color: p.muted))
+                      else ...[
+                        Row(
+                          children: [
+                            BagBadge(current.bagLabel, fontSize: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.map_outlined, size: 18, color: AppColors.teal),
-                                  const SizedBox(width: 8),
-                                  Text(t.openInGoogleMaps, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: AppColors.teal)),
+                                  Text(current.customerName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: TextSizes.bodyLg, fontWeight: FontWeight.w800, color: p.ink)),
+                                  if ((current.address?.trim() ?? '').isNotEmpty)
+                                    Text(current.address!.trim(),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: TextSizes.small, color: p.muted)),
                                 ],
                               ),
                             ),
-                          ),
+                          ],
                         ),
+                        const SizedBox(height: 12),
+                        BigButton(
+                          label: canNavigate(current) ? t.navigate : t.noLocation,
+                          icon: Icons.navigation_outlined,
+                          onPressed: canNavigate(current) ? () => navigateStop(context, ref, current) : null,
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      BigButton(
+                        label: t.openRouteInMaps,
+                        icon: Icons.alt_route,
+                        outlined: true,
+                        onPressed: g == null || mapsDirUrl(origin, g.open) == null ? null : () => _openRoute(g, origin),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  // ===== الزرّ الرئيسي الواضح: وصلت → التسليم =====
-                  PrimaryButton(
-                    label: t.arrivedDeliver,
-                    icon: Icons.check_circle_outline,
-                    fontSize: 16,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    radius: 14,
-                    onTap: () => context.push('/deliver/$orderId'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -381,43 +301,90 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 }
 
-/// بديلُ الخريطة حين لا مفتاح — لوحةٌ تقول السبب ولا تُخفيه.
-///
-/// ولماذا لا تُترك الشاشةُ فارغةً: المندوبُ يقف أمام مساحةٍ بيضاء ولا يعرف
-/// أعطلٌ في جهازه أم في الطلب، فيتّصل بالدعم. والعملُ لا يتوقّف: زرُّ «افتح
-/// في خرائط جوجل» أسفل الشاشة يعمل بلا مفتاحٍ أصلًا — فهو يفتح تطبيقَ
-/// الخرائط ولا يرسم خريطةً بنفسه.
-class _MapUnavailable extends StatelessWidget {
-  const _MapUnavailable({required this.dest});
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({required this.icon, required this.tooltip, required this.onTap});
 
-  /// الوجهةُ إن عُرفت — لا تُرسم هنا، وإنّما تُذكر لتطمين المندوب أنّ الطلب سليم.
-  final LatLng? dest;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.pal;
+    return Material(
+      color: p.surface,
+      shape: CircleBorder(side: BorderSide(color: p.border)),
+      elevation: 2,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onTap,
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        icon: Icon(icon, color: p.ink),
+      ),
+    );
+  }
+}
+
+/// بديلُ الخريطة حين لا مفتاح: السببُ مكتوبٌ، والمحطّاتُ مرقّمةً بالترتيب نفسه.
+class _NoMapPanel extends ConsumerWidget {
+  const _NoMapPanel({required this.group});
+
+  final RouteGroupView? group;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(stringsProvider);
+    final p = context.pal;
+    final open = group?.open ?? const <Stop>[];
     return Container(
-      color: AppColors.tealTint2,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.map_outlined, size: 46, color: AppColors.teal),
-          const SizedBox(height: 12),
-          const Text(
-            'الخريطة غير متاحة في هذا الإصدار',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            dest != null
-                ? 'لم يُضبط مفتاح الخرائط في هذا البناء. الوجهة محفوظة — استعمل «افتح في خرائط جوجل» أدناه.'
-                : 'لم يُضبط مفتاح الخرائط في هذا البناء. استعمل «افتح في خرائط جوجل» أدناه.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, height: 1.8, color: Colors.black54),
-          ),
-        ],
+      color: p.bg,
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 72, 16, 260),
+          children: [
+            Icon(Icons.map_outlined, size: 44, color: p.muted),
+            const SizedBox(height: 10),
+            Text(t.mapUnavailableTitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: TextSizes.bodyLg, fontWeight: FontWeight.w800, color: p.ink)),
+            const SizedBox(height: 6),
+            Text(t.mapUnavailableBody,
+                textAlign: TextAlign.center, style: TextStyle(fontSize: TextSizes.small, height: 1.6, color: p.muted)),
+            if (open.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              CardBox(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < open.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 26,
+                              child: Text('${i + 1}',
+                                  style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w800, color: p.muted)),
+                            ),
+                            BagBadge(open[i].bagLabel, fontSize: 16),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                [firstName(open[i].customerName), district(open[i].address)].where((x) => x.isNotEmpty).join(' — '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: TextSizes.small, color: p.ink2),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

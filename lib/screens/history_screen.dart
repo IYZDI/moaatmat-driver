@@ -1,130 +1,213 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../l10n.dart';
-import '../theme.dart';
-import '../widgets.dart';
-import '../state.dart';
-import '../models.dart';
 
-class HistoryScreen extends ConsumerWidget {
+import '../l10n.dart';
+import '../state.dart';
+import '../theme.dart';
+import '../widgets/bag_badge.dart';
+import '../widgets/buttons.dart';
+import '../widgets/common.dart';
+
+/// «سجلّي» — ما سلّمه المندوبُ يومًا بيوم، بأرقام الأكياس كما على الملصق.
+class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends ConsumerState<HistoryScreen> {
+  /// طلبٌ جارٍ الآن — الدوّارةُ تدور ما دام هذا فقط؛ فشلٌ يُبقي `historyLoaded`
+  /// كاذبًا، ودوّارةٌ معلّقةٌ عليه وحدَه لا تتوقّف أبدًا.
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // يُجلب عند أوّل فتحٍ فقط؛ والسحبُ للأسفل يحدّثه بعدها. و«جارٍ» يُرفع من
+    // الإطار الأوّل كي لا يومض «تعذّر التحميل» قبل أن يبدأ الطلب أصلًا.
+    if (!ref.read(driverProvider).historyLoaded) {
+      _loading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetch();
+      });
+    }
+  }
+
+  Future<void> _load() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    await _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      await ref.read(driverProvider.notifier).loadHistory();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  static DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  @override
+  Widget build(BuildContext context) {
     final t = ref.watch(stringsProvider);
-    final data = ref.watch(driverProvider);
+    final p = context.pal;
+    final s = ref.watch(driverProvider);
+    // «اليوم» بتوقيت المطعم (org_today) لا الجهاز — كي يطابق مسار اليوم.
+    final today = _day(s.profile?.orgToday ?? DateTime.now());
+
+    DateTime dayOf(HistoryEntry e) => _day(e.routeDate ?? e.deliveredAt?.toLocal() ?? today);
+
+    final delivered = s.history.where((e) => e.delivered);
+    final todayCount = delivered.where((e) => dayOf(e) == today).length;
+    final monthCount = delivered.where((e) {
+      final d = dayOf(e);
+      return d.year == today.year && d.month == today.month;
+    }).length;
+
+    // التجميعُ بتاريخ المسار، والأحدثُ أوّلًا (الخادمُ يرتّبها كذلك).
+    final days = <DateTime, List<HistoryEntry>>{};
+    for (final e in s.history) {
+      days.putIfAbsent(dayOf(e), () => []).add(e);
+    }
+    final keys = days.keys.toList()..sort((a, b) => b.compareTo(a));
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          TealHeader(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const StatusBar(dark: true),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                  child: Text(t.completedOrders, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
-                  child: Row(
-                    children: [
-                      _stat('${data.delivered}', t.today),
-                      const SizedBox(width: 10),
-                      // 🚨 كان `_stat('142', …)` — سلسلةً حرفيّةً مكتوبةً في
-                      //   الشيفرة. رقمٌ ثابتٌ يراه كلُّ مندوبٍ في كلّ شهر،
-                      //   ولا يتغيّر مهما وصّل. يُحسب الآن من `deliveredAt`
-                      //   الذي كان يُقرأ من الخادم ثمّ يُرمى.
-                      _stat('${_monthCount(data.history)}', t.thisMonth),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
-              children: [
-                // 🚨 كان "t.today" فوق قائمةٍ ليست لليوم: `driver_history`
-                //   تُرجع **آخر مئة** توصيلةٍ مسلَّمةٍ أو متعذّرة، مرتَّبةً
-                //   تنازليًّا — لا توصيلاتِ اليوم. عنوانٌ يكذب على ما تحته.
-                Text(t.latestDeliveries, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
-                const SizedBox(height: 10),
-                for (final h in data.history) ...[
-                  _item(t, h),
-                  const SizedBox(height: 10),
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            children: [
+              Text(t.tabHistory,
+                  style: TextStyle(fontSize: TextSizes.headline, fontWeight: FontWeight.w800, color: p.ink)),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(child: _Stat(value: todayCount, label: t.today, sub: t.deliveredCount)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _Stat(value: monthCount, label: t.thisMonth, sub: t.deliveredCount)),
                 ],
-              ],
-            ),
+              ),
+              if (!s.historyLoaded && s.history.isEmpty && _loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 60),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (!s.historyLoaded && s.history.isEmpty)
+                // فشل التحميل: لا نقول «لا سجلّ» ونحن لا نعرف — زرٌّ يعيد المحاولة.
+                EmptyState(
+                  icon: Icons.cloud_off_outlined,
+                  title: t.loadFailed,
+                  action: BigButton(label: t.retry, icon: Icons.refresh, outlined: true, onPressed: _load),
+                )
+              else if (s.history.isEmpty)
+                EmptyState(icon: Icons.history, title: t.noHistory)
+              else
+                for (final d in keys) ...[
+                  SectionHeader(t.dayTitle(d, today)),
+                  CardBox(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < days[d]!.length; i++) ...[
+                          if (i > 0) Divider(height: 1, color: p.border),
+                          _Row(entry: days[d]![i], t: t),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+            ],
           ),
-          const BottomNav(current: '/history'),
+        ),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.value, required this.label, required this.sub});
+
+  final int value;
+  final String label;
+  final String sub;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return CardBox(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: TextSizes.small, fontWeight: FontWeight.w700, color: p.muted)),
+          Text('$value', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: p.ink)),
+          Text(sub, style: TextStyle(fontSize: TextSizes.caption, color: p.successText)),
         ],
       ),
     );
   }
+}
 
-  Widget _item(L t, HistoryItem h) {
-    return AppCard(
-      radius: 16,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+class _Row extends StatelessWidget {
+  const _Row({required this.entry, required this.t});
+
+  final HistoryEntry entry;
+  final L t;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final e = entry;
+    final (icon, color) = !e.delivered
+        ? (Icons.cancel_outlined, p.dangerText)
+        : e.atDoor
+            ? (Icons.door_front_door_outlined, p.successText)
+            : (Icons.check_circle_outline, p.successText);
+    final when = e.deliveredAt == null ? '' : t.time(e.deliveredAt!);
+    final String detail;
+    if (!e.delivered) {
+      detail = (e.failureReason?.trim().isNotEmpty ?? false) ? e.failureReason!.trim() : t.failedTag;
+    } else if (e.atDoor) {
+      detail = when.isEmpty ? t.atDoor : t.doorAt(when);
+    } else {
+      detail = when.isEmpty ? t.deliveredTag : t.deliveredAt(when);
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: h.ok ? AppColors.tealTint : AppColors.dangerBg),
-            child: Icon(h.ok ? Icons.check : Icons.close, size: 18, color: h.ok ? AppColors.teal : AppColors.danger),
-          ),
-          const SizedBox(width: 12),
+          Icon(icon, color: color, size: 26),
+          const SizedBox(width: 10),
+          BagBadge(e.bagLabel, fontSize: 15, muted: true),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(h.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                Text('#${shortId(h.id)} · ${h.sub}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                Text(e.customerName.trim().isEmpty ? t.customer : e.customerName.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w700, color: p.ink)),
+                Text(detail,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: TextSizes.caption, fontWeight: FontWeight.w600, color: color)),
               ],
             ),
           ),
-          Text(h.ok ? t.deliveredLabel : t.failedLabel, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: h.ok ? AppColors.teal : AppColors.danger)),
+          if ((e.slotLabel?.trim() ?? '').isNotEmpty)
+            Flexible(
+              child: Text(e.slotLabel!.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),
+            ),
         ],
-      ),
-    );
-  }
-
-  /// عددُ ما سُلّم في الشهر الجاري — من `deliveredAt` لا من رقمٍ ثابت.
-  ///
-  /// ⚠ ويُعدّ **المسلَّمُ وحدَه**: `driver_history` تُرجع المتعذّرةَ معه،
-  ///   وعدُّها في «هذا الشهر» يُطري المندوبَ بما لم يفعل.
-  ///
-  /// ⚠ وحدُّ المئة في الخادم يعني أنّ الرقمَ أدنى حدٍّ لا مطلق: من تجاوز مئةَ
-  ///   توصيلةٍ في الشهر يُعرض له ما بلغه السجلّ. وهو أصدقُ من «١٤٢» الثابتة.
-  int _monthCount(List<HistoryItem> history) {
-    final now = DateTime.now();
-    return history
-        .where((h) =>
-            h.ok &&
-            h.deliveredAt != null &&
-            h.deliveredAt!.year == now.year &&
-            h.deliveredAt!.month == now.month)
-        .length;
-  }
-
-  Widget _stat(String num, String label) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(16)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(num, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700, height: 1)),
-            const SizedBox(height: 3),
-            Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11.5)),
-          ],
-        ),
       ),
     );
   }

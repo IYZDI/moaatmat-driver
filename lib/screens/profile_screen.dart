@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../l10n.dart';
-import '../theme.dart';
-import '../widgets.dart';
-import '../state.dart';
-import '../config/env.dart';
-import '../data/push_service.dart';
-import '../data/repository.dart';
 
+import '../data/push_service.dart';
+import '../l10n.dart';
+import '../state.dart';
+import '../theme.dart';
+import '../widgets/buttons.dart';
+import '../widgets/common.dart';
+import '../widgets/restaurant_header.dart';
+import '../widgets/stop_actions.dart';
+
+/// رقمُ الإصدار المعروض — يُحدَّث مع `version:` في pubspec.yaml (لا حزمةَ
+/// package_info في هذا التطبيق، وإضافتُها لسطرٍ واحد لا تستحقّ).
+const kAppVersion = '2.0.0 (1)';
+
+/// «حسابي»: سياسةُ المطعم كما يطبّقها الخادم، وهويّةُ المندوب، والإعدادات.
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
+
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -29,13 +35,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     });
   }
 
-  /// تشغيلُ إشعارات هذا الجهاز أو إيقافُها — **فعلٌ في الخادم لا حالةٌ محلّيّة**.
-  ///
-  /// الإطفاءُ يُلغي تسجيلَ رمز الجهاز، والتشغيلُ يُعيده. ومُرسِلُ الإشعارات
-  /// يقرأ صفوفَ التسجيل — فغيابُ الصفّ هو الإطفاءُ نفسُه.
+  /// تشغيلُ إشعارات هذا الجهاز أو إيقافُها — **فعلٌ في الخادم لا حالةٌ محلّيّة**:
+  /// الإطفاءُ يُلغي تسجيلَ رمز الجهاز، ومُرسِلُ الإشعارات يقرأ صفوفَ التسجيل.
   Future<void> _setNotif(bool on) async {
-    final session = ref.read(driverRepositoryProvider)?.sessionToken;
     final t = ref.read(stringsProvider);
+    final session = ref.read(driverRepositoryProvider).sessionToken;
     if (session == null) return;
     setState(() => _notifBusy = true);
     bool ok;
@@ -47,261 +51,245 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
     if (ok) await PushService.setEnabled(on);
     if (!mounted) return;
+    // ⛔ المفتاحُ يتبع ما وقع في الخادم لا ما ضغطه الإصبع.
     setState(() {
       _notifBusy = false;
-      // ⛔ الحالةُ تتبع ما وقع في الخادم لا ما ضغطه الإصبع: مفتاحٌ ينتقل
-      //   وشيءٌ لم يقع هو العطلُ الذي نُصلحه، لا حلُّه.
       if (ok) _notif = on;
     });
-    if (!ok) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(t.notifToggleFailed),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
+    if (!ok) showSnack(context, t.notifToggleFailed);
   }
 
-  /// تشخيص الإشعارات الفورية — مخفيّ، يظهر بضغطة مطوّلة على اسم المندوب.
-  bool _showPush = false;
+  Future<void> _callRestaurant() async {
+    final t = ref.read(stringsProvider);
+    final phone = ref.read(driverProvider).profile?.supportPhone?.trim() ?? '';
+    if (phone.isEmpty) {
+      showSnack(context, t.noSupportPhone);
+      return;
+    }
+    final ok = await callPhone(phone);
+    if (!ok && mounted) showSnack(context, t.couldNotOpen);
+  }
+
+  Future<void> _logout() async {
+    final t = ref.read(stringsProvider);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t.signOut),
+        content: Text(t.signOutConfirm, style: const TextStyle(fontSize: TextSizes.body)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(t.cancel)),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: ctx.pal.danger, foregroundColor: ctx.pal.onDanger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(t.signOut),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    // المُوجِّهُ يعيد التوجيه إلى الدخول حين تتغيّر حالةُ الجلسة.
+    await ref.read(driverProvider.notifier).logout();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = ref.watch(stringsProvider);
-    final data = ref.watch(driverProvider);
-    final name = data.name.trim().isNotEmpty ? data.name.trim() : t.driverFallback;
-    final phone = data.phone.trim().isNotEmpty ? data.phone.trim() : '—';
+    final p = context.pal;
+    final s = ref.watch(driverProvider);
+    final profile = s.profile;
+    final lang = ref.watch(localeProvider);
+    final mode = ref.watch(themeModeProvider);
+    final name = (profile?.name.trim().isNotEmpty ?? false) ? profile!.name.trim() : t.driverFallback;
+    final phone = profile?.phone.trim() ?? '';
+    final support = profile?.supportPhone?.trim() ?? '';
+
     return Scaffold(
-      backgroundColor: AppColors.surface3,
-      body: Column(
-        children: [
-          TealHeader(
-            child: Column(
-              children: [
-                const StatusBar(dark: true),
-                Container(
-                  width: 78,
-                  height: 78,
-                  alignment: Alignment.center,
-                  margin: const EdgeInsets.fromLTRB(0, 14, 0, 12),
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: 0.18)),
-                  child: Text(driverInitial(name), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700)),
-                ),
-                GestureDetector(
-                  onLongPress: () => setState(() => _showPush = !_showPush),
-                  child: Text(name,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '${t.deliveryStaff}${data.orgName.trim().isNotEmpty ? ' · ${data.orgName.trim()}' : ''}',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13),
-                ),
-                const SizedBox(height: 30),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
-              children: [
-                _group([
-                  _row(Icons.phone_outlined, t.phoneNumber, trailing: Text(phone, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 13, color: AppColors.muted))),
-                  _row(
-                    Icons.mail_outline,
-                    t.connectionStatus,
-                    trailing: Env.hasSupabase
-                        ? StatusBadge(label: t.connected, fg: AppColors.teal, bg: AppColors.tealTint)
-                        : StatusBadge(label: t.demo, fg: AppColors.amber, bg: AppColors.amberBg),
-                    last: true,
-                  ),
-                ]),
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 4, bottom: 8),
-                  child: Text(t.settings, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.muted3)),
-                ),
-                _group([
-                  _row(
-                    Icons.notifications_none,
-                    t.newOrderNotifications,
-                    iconColor: AppColors.muted2,
-                    // 🚨 **كان زينةً**: `onChanged` يضبط حالةً محلّيّةً لا
-                    //   تُحفظ ولا تُرسَل — يُطفئه المندوبُ فتستمرّ الإشعارات،
-                    //   ويعود مفتوحًا عند أوّل فتحٍ للتطبيق.
-                    //   الآن يُلغي تسجيلَ رمزِ هذا الجهاز (وهو ما يقرؤه
-                    //   مُرسِلُ الإشعارات فعلًا)، ويُعيده عند التشغيل.
-                    trailing: Switch(
-                      value: _notif,
-                      activeTrackColor: AppColors.teal,
-                      onChanged: _notifBusy ? null : (v) => _setNotif(v),
-                    ),
-                  ),
-                  _row(
-                    Icons.language,
-                    t.language,
-                    iconColor: AppColors.muted2,
-                    trailing: Text(t.languageValue, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-                    onTap: () => ref.read(localeProvider.notifier).toggle(),
-                  ),
-                  _row(
-                    Icons.support_agent,
-                    t.helpSupport,
-                    iconColor: AppColors.muted2,
-                    trailing: Text(t.callRestaurant, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-                    onTap: _contactSupport,
-                    last: true,
-                  ),
-                ]),
-                if (_showPush) ...[
-                  const SizedBox(height: 16),
-                  _group([
-                    _row(Icons.notifications_active_outlined, 'الإشعارات الفورية',
-                        iconColor: AppColors.muted2,
-                        trailing: Flexible(
-                          child: Text(PushService.instance.statusSummary,
-                              textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                  fontSize: 10.5, color: AppColors.muted)),
-                        ),
-                        last: true),
-                  ]),
-                ],
-                const SizedBox(height: 16),
-                _logoutButton(),
-              ],
-            ),
-          ),
-          const BottomNav(current: '/profile'),
-        ],
-      ),
-    );
-  }
-
-  Widget _group(List<Widget> children) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
-  Widget _row(IconData icon, String label, {Widget? trailing, Color iconColor = AppColors.teal, bool last = false, VoidCallback? onTap}) {
-    final row = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      decoration: BoxDecoration(
-        border: last ? null : const Border(bottom: BorderSide(color: AppColors.border2)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: iconColor),
-          const SizedBox(width: 13),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600))),
-          ?trailing,
-        ],
-      ),
-    );
-    if (onTap == null) return row;
-    return InkWell(onTap: onTap, child: row);
-  }
-
-  /// «المساعدة والدعم»: يجلب رقم تواصل مطعم المندوب ويعرض ورقة اتصال.
-  Future<void> _contactSupport() async {
-    final t = ref.read(stringsProvider);
-    final info = await ref.read(driverProvider.notifier).orgInfo();
-    if (!mounted) return;
-    final phone = info?.supportPhone.trim() ?? '';
-    if (info == null || phone.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(t.noSupportPhone),
-          behavior: SnackBarBehavior.floating,
-        ));
-      return;
-    }
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+          children: [
+            Text(t.tabProfile, style: TextStyle(fontSize: TextSizes.headline, fontWeight: FontWeight.w800, color: p.ink)),
+            const SizedBox(height: 14),
+            if (s.demo)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Tag(t.demo, bg: p.warnSoft, fg: p.warnText),
+              ),
+            // ===== المطعم =====
+            CardBox(
+              child: Column(
                 children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(color: AppColors.tealTint, borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.support_agent, color: AppColors.teal, size: 22),
+                  Row(
+                    children: [
+                      RestaurantLogo(profile: profile, size: 52),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(profile?.orgName ?? '',
+                            style: TextStyle(fontSize: TextSizes.title, fontWeight: FontWeight.w800, color: p.ink)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoRow(
+                    icon: Icons.photo_camera_outlined,
+                    label: t.photoPolicy,
+                    value: (profile?.photoRequired ?? true) ? t.required : t.optional,
+                  ),
+                  _InfoRow(
+                    icon: Icons.door_front_door_outlined,
+                    label: t.doorPolicy,
+                    value: (profile?.doorAllowed ?? true) ? t.allowed : t.notAllowed,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // ===== المندوب =====
+            CardBox(
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: p.primarySoft,
+                    child: Text(name.characters.first,
+                        style: TextStyle(fontSize: TextSizes.title, fontWeight: FontWeight.w800, color: p.primaryText)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(info.name.isNotEmpty ? info.name : t.restaurantSupport,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                        Text(phone, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+                        Text(name, style: TextStyle(fontSize: TextSizes.bodyLg, fontWeight: FontWeight.w800, color: p.ink)),
+                        if (phone.isNotEmpty)
+                          Text(phone,
+                              textDirection: TextDirection.ltr,
+                              style: TextStyle(fontSize: TextSizes.small, color: p.muted)),
                       ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              PrimaryButton(
-                label: t.callSupport,
-                icon: Icons.phone_outlined,
-                onTap: () async {
-                  Navigator.of(ctx).pop();
-                  final uri = Uri.parse('tel:${phone.replaceAll(' ', '')}');
-                  if (await canLaunchUrl(uri)) await launchUrl(uri);
-                },
+            ),
+            SectionHeader(t.settings),
+            CardBox(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    value: _notif,
+                    onChanged: _notifBusy || s.demo ? null : _setNotif,
+                    secondary: Icon(Icons.notifications_outlined, color: p.ink2),
+                    title: Text(t.routeNotifications,
+                        style: const TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w600)),
+                  ),
+                  Divider(height: 1, color: p.border),
+                  _SettingRow(
+                    icon: Icons.language,
+                    label: t.language,
+                    child: SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: 'ar', label: Text('العربية')),
+                        ButtonSegment(value: 'en', label: Text('English')),
+                      ],
+                      selected: {lang},
+                      onSelectionChanged: (v) => ref.read(localeProvider.notifier).set(v.first),
+                    ),
+                  ),
+                  Divider(height: 1, color: p.border),
+                  _SettingRow(
+                    icon: Icons.contrast,
+                    label: t.appearance,
+                    child: SegmentedButton<ThemeMode>(
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(value: ThemeMode.system, label: Text(t.themeSystem)),
+                        ButtonSegment(value: ThemeMode.light, label: Text(t.themeLight)),
+                        ButtonSegment(value: ThemeMode.dark, label: Text(t.themeDark)),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: (v) => ref.read(themeModeProvider.notifier).set(v.first),
+                    ),
+                  ),
+                  Divider(height: 1, color: p.border),
+                  ListTile(
+                    minTileHeight: 56,
+                    leading: Icon(Icons.support_agent, color: p.ink2),
+                    title: Text(t.callRestaurant,
+                        style: const TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w600)),
+                    // الرقمُ يُقرأ يسارًا ليمين، ويبقى في جهة البداية تحت العنوان.
+                    subtitle: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(support.isEmpty ? t.noSupportPhone : support,
+                          textDirection: support.isEmpty ? null : TextDirection.ltr,
+                          style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),
+                    ),
+                    onTap: _callRestaurant,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 20),
+            BigButton(label: t.signOut, icon: Icons.logout, tone: Tone.danger, outlined: true, onPressed: _logout),
+            const SizedBox(height: 14),
+            Text(t.version(kAppVersion),
+                textAlign: TextAlign.center, style: TextStyle(fontSize: TextSizes.caption, color: p.muted)),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _logoutButton() {
-    final t = ref.watch(stringsProvider);
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: () async {
-          await ref.read(driverProvider.notifier).logout();
-          if (mounted) context.go('/login');
-        },
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFF0D8D4)),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.logout, size: 18, color: AppColors.danger),
-              const SizedBox(width: 8),
-              Text(t.signOut, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.danger)),
-            ],
-          ),
-        ),
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.icon, required this.label, required this.value});
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: p.ink2),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label, style: TextStyle(fontSize: TextSizes.body, color: p.ink2))),
+          Text(value, style: TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w800, color: p.ink)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({required this.icon, required this.label, required this.child});
+
+  final IconData icon;
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(icon, color: p.ink2),
+            const SizedBox(width: 16),
+            Text(label, style: const TextStyle(fontSize: TextSizes.body, fontWeight: FontWeight.w600)),
+          ]),
+          const SizedBox(height: 10),
+          SizedBox(width: double.infinity, child: child),
+        ],
       ),
     );
   }
